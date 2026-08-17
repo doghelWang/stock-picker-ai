@@ -10,15 +10,7 @@ binding = "AI_USAGE"
 id = "72c32b58d9424e899dbd845c62e259c8"
 
 [vars]
-TG_BOT_TOKEN = "8638970213:AAEFSue15RAajMQE1iKz4K9yQoNjT5-jkOU"
-TG_CHAT_ID = "1099933423"
-
-# 【大模型智能路由与切换配置】
-# 1. 默认状态：留空以下 API Key，系统 100% 免费使用 Cloudflare 原生 DeepSeek-R1-32B 深度思维链推理。
-# 2. 外部旗舰切换：如果填入了下方对应的 API Key，系统会自动热插拔切换至顶级大模型。
-# GEMINI_API_KEY = ""       # Google Gemini (如 gemini-2.0-flash / gemini-2.5)
-# DEEPSEEK_API_KEY = ""     # DeepSeek 官方 API (如 deepseek-reasoner / deepseek-chat)
-# OPENAI_API_KEY = ""       # OpenAI 官方 API (如 gpt-4o / o1)
+# 敏感凭证 (TG_BOT_TOKEN / TG_CHAT_ID 等) 通过 wrangler secret 加密保存，不在配置文件中明文暴露
 
 [triggers]
 # 【科学优化后的 A 股 3 大黄金交易时段定时器 (0 扣费精准调度)】
