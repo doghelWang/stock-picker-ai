@@ -18,12 +18,14 @@ export default {
       });
     }
 
-    if (url.pathname === '/api/stocks') {
-      const stocks = await fetchMarketCandidates();
-      return new Response(JSON.stringify({ count: stocks.length, data: stocks }, null, 2), {
+    if (url.pathname === '/api/model-info') {
+      const activeEngine = detectActiveModelEngine(env);
+      return new Response(JSON.stringify({ activeEngine }, null, 2), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
       });
     }
+
+    const activeEngine = detectActiveModelEngine(env);
 
     // 默认展示仪表盘
     const html = `<!DOCTYPE html>
@@ -35,10 +37,11 @@ export default {
   <style>
     :root { --bg: #0b0f19; --card: #151d30; --text: #f8fafc; --primary: #38bdf8; --accent: #10b981; --warn: #f59e0b; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; margin: 0; line-height: 1.6; }
-    .container { max-width: 900px; margin: 0 auto; }
+    .container { max-width: 950px; margin: 0 auto; }
     .card { background: var(--card); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; border: 1px solid #23304d; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
     h1 { color: var(--primary); margin-top: 0; font-size: 1.6rem; }
     .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.85rem; font-weight: 600; background: #065f46; color: #34d399; margin-right: 0.5rem; }
+    .badge-engine { background: #1e3a8a; color: #93c5fd; }
     .btn { display: inline-block; background: var(--primary); color: #0f172a; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 700; text-decoration: none; border: none; cursor: pointer; transition: opacity 0.2s; font-size: 1rem; margin-right: 0.5rem; margin-top: 0.5rem; }
     .btn:hover { opacity: 0.9; }
     .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
@@ -51,34 +54,40 @@ export default {
 <body>
   <div class="container">
     <div class="card">
-      <h1>⚡ AI 实时交易推荐与量化选股 Worker</h1>
-      <p><span class="badge">方案 A (storkA)</span> <span class="badge">高频盘中巡检: 每15分钟</span> <span class="badge">Workers AI: DeepSeek-R1</span></p>
-      <p>融合 <b>Stock-Prediction 时序概率</b> 与 <b>Qlib / Abu 量化动量过滤</b>，盘中高频（09:30-15:00 每15分钟）实时捕获主力异动与起爆点，盘后 15:30 自动生成深度研报。</p>
+      <h1>⚡ AI 实时交易推荐与量化选股 (storkA)</h1>
+      <p>
+        <span class="badge">方案 A</span>
+        <span class="badge">盘中高频: 每15分钟</span>
+        <span class="badge badge-engine">当前推理引擎: ${activeEngine.name}</span>
+      </p>
+      <p style="color:#94a3b8; font-size:0.92rem;">
+        ${activeEngine.description}
+      </p>
       
       <div class="metric-grid">
         <div class="metric">
-          <div style="color:#94a3b8; font-size:0.85rem;">盘中实时巡检</div>
-          <div class="metric-val" style="color:var(--accent);">工作日 每 15 分钟</div>
+          <div style="color:#94a3b8; font-size:0.85rem;">当前研判 AI</div>
+          <div class="metric-val" style="color:var(--primary); font-size: 1.05rem;">${activeEngine.name}</div>
         </div>
         <div class="metric">
-          <div style="color:#94a3b8; font-size:0.85rem;">盘后深度复盘</div>
-          <div class="metric-val">工作日 15:30 自动执行</div>
+          <div style="color:#94a3b8; font-size:0.85rem;">自动切换机制</div>
+          <div class="metric-val" style="color:var(--accent);">API Key 智能热插拔</div>
         </div>
         <div class="metric">
           <div style="color:#94a3b8; font-size:0.85rem;">实时信号推送</div>
-          <div class="metric-val" style="color:var(--primary);">Telegram 机器人</div>
+          <div class="metric-val">Telegram 机器人联动</div>
         </div>
       </div>
 
       <div style="margin-top: 1.5rem;">
-        <button class="btn" onclick="triggerRun('intraday')">⚡ 模拟盘中实时交易推荐信号</button>
-        <button class="btn btn-outline" onclick="triggerRun('postmarket')">📊 手动生成盘后完整投研复盘</button>
-        <span id="loading" style="display:none; margin-left: 1rem; color: #38bdf8; font-weight: 500;">正在由 Workers AI 实时研判中...</span>
+        <button class="btn" onclick="triggerRun('intraday')">⚡ 立即执行实时买入信号研判</button>
+        <button class="btn btn-outline" onclick="triggerRun('postmarket')">📊 生成盘后完整投研复盘</button>
+        <span id="loading" style="display:none; margin-left: 1rem; color: #38bdf8; font-weight: 500;">正在由 ${activeEngine.name} 深度推理中...</span>
       </div>
     </div>
     
     <div class="card" id="resCard" style="display: none;">
-      <h2>📊 最新交易信号与执行参数</h2>
+      <h2>📊 最新交易决策卡片</h2>
       <pre id="output"></pre>
     </div>
   </div>
@@ -112,6 +121,132 @@ export default {
   }
 };
 
+// 检测当前激活的模型引擎（热插拔路由器）
+function detectActiveModelEngine(env) {
+  if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim()) {
+    return {
+      type: 'GEMINI',
+      name: 'Google Gemini 旗舰模型',
+      description: '检测到 GEMINI_API_KEY，已自动切换至 Google 官方 Gemini 旗舰推理引擎。'
+    };
+  }
+  if (env.DEEPSEEK_API_KEY && env.DEEPSEEK_API_KEY.trim()) {
+    return {
+      type: 'DEEPSEEK_OFFICIAL',
+      name: 'DeepSeek 官方旗舰 API (V4 / Reasoner)',
+      description: '检测到 DEEPSEEK_API_KEY，已自动切换至 DeepSeek 官方满血云端大模型。'
+    };
+  }
+  if (env.OPENAI_API_KEY && env.OPENAI_API_KEY.trim()) {
+    return {
+      type: 'OPENAI',
+      name: 'OpenAI 官方旗舰 API (o1 / GPT-4o)',
+      description: '检测到 OPENAI_API_KEY，已自动切换至 OpenAI 官方旗舰大模型。'
+    };
+  }
+  return {
+    type: 'CF_DEEPSEEK_R1',
+    name: 'Cloudflare DeepSeek-R1 (32B 原生)',
+    description: '未配置外部 API Key，默认使用 Cloudflare 原生 DeepSeek-R1-32B 深度思维链推理（100% 免费白嫖，0 成本）。'
+  };
+}
+
+// 统一模型调用分发器 (支持 Gemini / 官方 DeepSeek / OpenAI / Cloudflare 原生 R1)
+async function generateAIAnalysis(prompt, env) {
+  const engine = detectActiveModelEngine(env);
+
+  // 1. Google Gemini 官方 API
+  if (engine.type === 'GEMINI') {
+    try {
+      const modelName = env.GEMINI_MODEL || 'gemini-2.0-flash';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${env.GEMINI_API_KEY.trim()}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) return { text, engineName: `Google Gemini (${modelName})` };
+    } catch (e) {
+      console.error('Gemini 调用失败，回退原生 R1:', e);
+    }
+  }
+
+  // 2. DeepSeek 官方 API
+  if (engine.type === 'DEEPSEEK_OFFICIAL') {
+    try {
+      const modelName = env.DEEPSEEK_MODEL || 'deepseek-reasoner';
+      const res = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${env.DEEPSEEK_API_KEY.trim()}`
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: 'system', content: '你是专业的实盘量化交易专家，指令明确专业。' },
+            { role: 'user', content: prompt }
+          ]
+        })
+      });
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (text) return { text, engineName: `DeepSeek 官方 API (${modelName})` };
+    } catch (e) {
+      console.error('DeepSeek 官方调用失败，回退原生 R1:', e);
+    }
+  }
+
+  // 3. OpenAI 官方 API
+  if (engine.type === 'OPENAI') {
+    try {
+      const modelName = env.OPENAI_MODEL || 'gpt-4o';
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${env.OPENAI_API_KEY.trim()}`
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: 'system', content: '你是专业的实盘量化交易专家，指令明确专业。' },
+            { role: 'user', content: prompt }
+          ]
+        })
+      });
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (text) return { text, engineName: `OpenAI (${modelName})` };
+    } catch (e) {
+      console.error('OpenAI 调用失败，回退原生 R1:', e);
+    }
+  }
+
+  // 4. 默认底座：Cloudflare 原生 DeepSeek-R1 (32B)
+  if (env.AI) {
+    try {
+      const aiRes = await env.AI.run('@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', {
+        messages: [
+          { role: 'system', content: '你是专业的实盘量化交易专家，指令明确专业。' },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 1000
+      });
+      const text = aiRes?.response || aiRes?.choices?.[0]?.message?.content || JSON.stringify(aiRes);
+      return { text, engineName: 'Cloudflare DeepSeek-R1-32B (原生免费)' };
+    } catch (err) {
+      return { text: `量化形态良好，建议严格按止损位分批建仓。(${err.message})`, engineName: '基础量化规则' };
+    }
+  }
+
+  return { text: '（基础量化规则生成）', engineName: '基础量化规则' };
+}
+
 // 核心流程：量化漏斗 -> 股价概率预测 -> 买卖点生成 -> Telegram 实时通知
 async function runStockPickerPipeline(env, mode = 'INTRADAY') {
   const startTime = Date.now();
@@ -125,7 +260,7 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
   // 2. 取量化动量综合评分前 3 只核心标的
   const topPicks = candidates.slice(0, 3);
 
-  // 3. 计算确定性的量化风控参数（买点区间、严格止损线、目标止盈）
+  // 3. 计算确定性的量化风控参数
   const tradePlans = topPicks.map(s => {
     const buyLow = (s.price * 0.992).toFixed(2);
     const buyHigh = (s.price * 1.005).toFixed(2);
@@ -144,7 +279,7 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
     };
   });
 
-  // 4. 构造给 Cloudflare Workers AI 的时序投研 Prompt
+  // 4. 构造给大模型的时序投研 Prompt
   const stocksText = tradePlans.map((s, idx) => 
     `${idx + 1}. [${s.code}] ${s.name} - 现价: ¥${s.price}, 涨幅: +${s.changePercent}%, 成交额: ${(s.amount / 10000).toFixed(2)}亿元\n   预设参数: 建议买入区间: ${s.buyZone}, 止损价: ${s.stopLoss}, 目标位: ${s.target1}`
   ).join('\n');
@@ -154,31 +289,16 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
     ? `你是一位顶级实盘日内量化交易总监。基于盘中实时捕获的3只放量起爆强势龙头股：\n\n${stocksText}\n\n请针对每只股票输出精简实盘操作指令：\n1. 盘中起爆形态确认与分时量价异动逻辑\n2. 挂单买入技巧（如何利用分时均线低吸防追高）\n3. 交易评级（🌟🌟🌟🌟🌟 强烈推荐买入 / 🌟🌟🌟🌟 重点关注）\n\n最后给出当前分时盘面的一句话交易锦囊。语言极其精炼直接。`
     : `你是一位顶级股票量化基金经理。请基于今日盘后筛选出的3只核心标的进行深度复盘研报：\n\n${stocksText}\n\n请输出每只标的的核心逻辑、支撑阻力位、风控建议及次日开盘策略。精炼专业。`;
 
-  let aiAnalysis = '';
-  try {
-    if (env.AI) {
-      const aiRes = await env.AI.run('@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', {
-        messages: [
-          { role: 'system', content: '你是专业的实盘量化交易专家，指令明确专业。' },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 1000
-      });
-      aiAnalysis = aiRes?.response || aiRes?.choices?.[0]?.message?.content || JSON.stringify(aiRes);
-    } else {
-      aiAnalysis = '（Workers AI 基础量化规则生成）';
-    }
-  } catch (err) {
-    aiAnalysis = `【AI分析】量化形态良好，建议严格按止损位分批建仓。(${err.message})`;
-  }
+  // 5. 由统一多模态路由器进行推理研判
+  const aiResult = await generateAIAnalysis(prompt, env);
+  const cleanAnalysis = (aiResult.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
-  const cleanAnalysis = aiAnalysis.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-
-  // 5. 格式化 Telegram 实时交易信号卡片
+  // 6. 格式化 Telegram 实时交易信号卡片
   const nowStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
   const tgMsg = isIntraday
     ? `⚡ <b>#【实时交易买入推荐信号】</b> ⚡\n` +
       `🕒 <b>触发时间：</b>${nowStr}\n` +
+      `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code>\n` +
       `🔥 <b>策略模型：</b>时序概率预测 + Qlib 量价共振\n\n` +
       tradePlans.map(s => 
         `🎯 <b>${s.name}</b> (<code>${s.code}</code>)\n` +
@@ -191,6 +311,7 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
       `\n\n🧠 <b>AI 操盘手指令：</b>\n${cleanAnalysis.slice(0, 2500)}`
     : `📈 <b>#【每日盘后智能选股与投研报告】</b>\n` +
       `📅 <b>日期：</b>${nowStr}\n` +
+      `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code>\n` +
       `🏆 <b>今日精选标的：</b>\n` +
       tradePlans.map(s => `• <b>${s.name}</b> (<code>${s.code}</code>) 现价: ¥${s.price} (+${s.changePercent}%) 止损: ${s.stopLoss}`).join('\n') +
       `\n\n🧠 <b>AI 投研分析与决策建议：</b>\n${cleanAnalysis.slice(0, 2500)}`;
@@ -217,6 +338,7 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
   return {
     success: true,
     mode,
+    activeEngine: aiResult.engineName,
     executionTimeMs: Date.now() - startTime,
     timestamp: nowStr,
     tradePlans,

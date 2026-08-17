@@ -9,12 +9,15 @@ binding = "AI"
 TG_BOT_TOKEN = "8638970213:AAEFSue15RAajMQE1iKz4K9yQoNjT5-jkOU"
 TG_CHAT_ID = "1099933423"
 
+# 【大模型智能路由与切换配置】
+# 1. 默认状态：留空以下 API Key，系统 100% 免费使用 Cloudflare 原生 DeepSeek-R1-32B 深度思维链推理。
+# 2. 外部旗舰切换：如果填入了下方对应的 API Key，系统会自动热插拔切换至顶级大模型。
+# GEMINI_API_KEY = ""       # Google Gemini (如 gemini-2.0-flash / gemini-2.5)
+# DEEPSEEK_API_KEY = ""     # DeepSeek 官方 API (如 deepseek-reasoner / deepseek-chat)
+# OPENAI_API_KEY = ""       # OpenAI 官方 API (如 gpt-4o / o1)
+
 [triggers]
-# 盘中高频巡检（北京时间工作日 09:30-11:30, 13:00-15:00 每15分钟巡检一次）+ 15:30 盘后总结
-# UTC 时间：
-# 01:30-03:30 每15分钟 (对应北京时间 09:30-11:30)
-# 05:00-07:00 每15分钟 (对应北京时间 13:00-15:00)
-# 07:30 (对应北京时间 15:30 盘后总结)
+# 盘中高频巡检（工作日 09:30-11:30, 13:00-15:00 每15分钟）+ 15:30 盘后总结
 crons = [
   "*/15 1-3 * * 1-5",
   "*/15 5-7 * * 1-5",
