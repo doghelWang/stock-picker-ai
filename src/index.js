@@ -245,8 +245,8 @@ async function handleTelegramCommand(message, env) {
     return;
   }
 
-  // 3. 指令：/portfolio 或 "💼 查询模拟盘持仓" / "持仓" / "账户"
-  if (text.startsWith('/portfolio') || text.includes('持仓') || text.includes('资产') || text.includes('账户')) {
+  // 3. 指令：/portfolio 或 "❄️ 查询雪球组合" / "持仓" / "账户"
+  if (text.startsWith('/portfolio') || text.includes('雪球') || text.includes('持仓') || text.includes('资产') || text.includes('组合')) {
     try {
       const resp = await fetch('https://stock-screener-hub.wangrunxi30.workers.dev/api/trade/portfolio');
       const acc = await resp.json();
@@ -254,26 +254,28 @@ async function handleTelegramCommand(message, env) {
         ? acc.positions.map(p => `• <b>${p.name}</b> (<code>${p.code}</code>): ${p.shares}股 | 成本: ¥${p.costPrice} | 现价: ¥${p.currentPrice} | 浮盈: <b style="color:${p.pnl >= 0 ? '#34d399' : '#f87171'}">${p.pnl >= 0 ? '+' : ''}${p.pnlPercent}%</b>`).join('\n')
         : '（当前暂无持仓）';
 
-      const pMsg = `💰 <b>#【100万模拟实盘账户资产大盘】</b>\n\n` +
-        `❄️ <b>雪球实盘组合：</b><code>ZH3664845</code> (已完成绑定)\n` +
-        `💵 <b>总资产 (净值)：</b>¥${acc.totalAsset.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}\n` +
+      const pMsg = `❄️ <b>#【雪球官方模拟实盘组合 (ZH3664845)】</b>\n\n` +
+        `👤 <b>组合名称：</b>天啦噜去的组合\n` +
+        `💵 <b>组合总资产：</b>¥${acc.totalAsset.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}\n` +
         `📈 <b>累计收益率：</b><b style="color:${acc.totalPnLPercent >= 0 ? '#34d399' : '#f87171'}">${acc.totalPnLPercent >= 0 ? '+' : ''}${acc.totalPnLPercent}%</b>\n` +
         `🪙 <b>可用现金余额：</b>¥${acc.cash.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}\n` +
         `📊 <b>股票持仓市值：</b>¥${acc.marketValue.toLocaleString('zh-CN', { minimumFractionDigits: 2 })} (仓位: ${acc.positionRatio}%)\n\n` +
-        `💼 <b>当前持仓股票：</b>\n${posText}\n\n` +
-        `🔗 <b>完整交割单与看板：</b> https://storkb.luckycici.cc`;
+        `💼 <b>当前组合持仓：</b>\n${posText}\n\n` +
+        `<i>数据已与雪球官方组合 ZH3664845 保持实时同步</i>`;
 
       const inlineBtn = {
         inline_keyboard: [
           [
-            { text: "❄️ 在雪球 App 查看组合 (ZH3664845)", url: "https://xueqiu.com/p/ZH3664845" },
-            { text: "📊 打开 storkB 看板", url: "https://storkb.luckycici.cc" }
+            { text: "❄️ 点击在雪球 App 中打开 ZH3664845", url: "https://xueqiu.com/p/ZH3664845" }
+          ],
+          [
+            { text: "📊 打开 storkB 量化看板", url: "https://storkb.luckycici.cc" }
           ]
         ]
       };
       await sendTelegramMessageWithInline(env, chatId, pMsg, inlineBtn);
     } catch (e) {
-      await sendTelegramMessage(env, chatId, '⚠️ 查询模拟账户失败: ' + e.message);
+      await sendTelegramMessage(env, chatId, '⚠️ 查询雪球组合失败: ' + e.message);
     }
     return;
   }
@@ -391,7 +393,7 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
   if (!env.TG_BOT_TOKEN) return;
   const replyMarkup = {
     keyboard: [
-      [{ text: "⚡ 立即实时选股" }, { text: "💼 查询模拟持仓" }],
+      [{ text: "⚡ 立即实时选股" }, { text: "❄️ 查询雪球组合 (ZH3664845)" }],
       [{ text: "🔋 查询剩余算力" }, { text: "📊 打开 storkB 看板" }]
     ],
     resize_keyboard: true,
