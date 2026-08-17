@@ -1,5 +1,5 @@
 export default {
-  // 1. 【科学优化后的 3 大黄金交易时段触发器】
+  // 1. 【定时触发器】三大黄金交易时段 (10:00, 14:00, 15:30)
   async scheduled(event, env, ctx) {
     const beijingHour = (new Date().getUTCHours() + 8) % 24;
     let mode = 'MORNING_BURST'; // 10:00 早盘起爆
@@ -11,18 +11,34 @@ export default {
     ctx.waitUntil(runStockPickerPipeline(env, mode));
   },
 
-  // 2. HTTP 交互接口
+  // 2. HTTP 交互接口 & Telegram Webhook
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    if (url.pathname === '/run') {
-      const mode = url.searchParams.get('mode') || 'INTRADAY';
-      const result = await runStockPickerPipeline(env, mode);
-      return new Response(JSON.stringify(result, null, 2), {
+    // 接收 Telegram 机器人指令（仅授权给管理员私聊触发）
+    if (url.pathname === '/api/telegram-webhook' && request.method === 'POST') {
+      try {
+        const update = await request.json();
+        if (update?.message) {
+          ctx.waitUntil(handleTelegramCommand(update.message, env));
+        }
+        return new Response('OK');
+      } catch (err) {
+        return new Response('Error', { status: 400 });
+      }
+    }
+
+    // 辅助接口：注册 Telegram Webhook
+    if (url.pathname === '/api/setup-webhook') {
+      const webhookUrl = `https://${url.hostname}/api/telegram-webhook`;
+      const tgRes = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/setWebhook?url=${encodeURIComponent(webhookUrl)}`);
+      const tgData = await tgRes.json();
+      return new Response(JSON.stringify({ webhookUrl, result: tgData }, null, 2), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
       });
     }
 
+    // 辅助接口：获取算力数据
     if (url.pathname === '/api/quota') {
       const quota = await getAIQuotaUsage(env);
       return new Response(JSON.stringify(quota, null, 2), {
@@ -33,7 +49,7 @@ export default {
     const activeEngine = detectActiveModelEngine(env);
     const quota = await getAIQuotaUsage(env);
 
-    // 默认获取一次行情以渲染主界面推荐结果
+    // 获取行情渲染只读展示主界面
     const candidates = await fetchMarketCandidates();
     const topPicks = candidates.slice(0, 3);
     const tradePlans = topPicks.map(s => {
@@ -54,6 +70,7 @@ export default {
       };
     });
 
+    // 纯净只读看板（已去除任何公共触发按钮，防止访客盗刷）
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -64,13 +81,11 @@ export default {
     :root {
       --bg: #070b14;
       --card: #111827;
-      --card-hover: #172033;
       --border: #1f293d;
       --text: #f1f5f9;
       --muted: #94a3b8;
       --primary: #38bdf8;
       --accent: #10b981;
-      --warn: #f59e0b;
       --danger: #ef4444;
     }
     * { box-sizing: border-box; }
@@ -86,23 +101,19 @@ export default {
     
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
     
-    .schedule-bar { display: flex; gap: 1rem; background: #0b1222; border: 1px solid #1e293b; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.88rem; color: #94a3b8; margin-bottom: 1.25rem; align-items: center; flex-wrap: wrap; }
+    .schedule-bar { display: flex; justify-content: space-between; background: #0b1222; border: 1px solid #1e293b; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.88rem; color: #94a3b8; margin-bottom: 1.25rem; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
     .schedule-item { color: #e2e8f0; font-weight: 600; }
     
     .pick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; margin-top: 1rem; }
-    .pick-card { background: #0b1222; border: 1px solid #233554; border-radius: 10px; padding: 1.25rem; transition: transform 0.2s, border-color 0.2s; position: relative; }
-    .pick-card:hover { transform: translateY(-2px); border-color: var(--primary); }
+    .pick-card { background: #0b1222; border: 1px solid #233554; border-radius: 10px; padding: 1.25rem; }
     .pick-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; border-bottom: 1px solid #1a2744; padding-bottom: 0.5rem; }
     .pick-name { font-size: 1.25rem; font-weight: 700; color: #fff; }
     .pick-price { font-size: 1.15rem; font-weight: 700; color: var(--danger); }
     .param-row { display: flex; justify-content: space-between; margin-bottom: 0.4rem; font-size: 0.9rem; }
     .param-label { color: var(--muted); }
     .param-val { font-weight: 600; color: #f8fafc; font-family: monospace; }
-    
-    .btn { display: inline-block; background: var(--primary); color: #0f172a; padding: 0.65rem 1.3rem; border-radius: 8px; font-weight: 700; text-decoration: none; border: none; cursor: pointer; transition: opacity 0.2s; font-size: 0.92rem; margin-right: 0.5rem; }
-    .btn:hover { opacity: 0.9; }
-    .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
-    pre { background: #070a12; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.88rem; color: #cbd5e1; white-space: pre-wrap; word-break: break-all; border: 1px solid #1a253d; line-height: 1.6; }
+
+    .secure-notice { background: rgba(56, 189, 248, 0.06); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px; padding: 0.9rem 1.2rem; font-size: 0.9rem; color: #bae6fd; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.25rem; }
   </style>
 </head>
 <body>
@@ -121,15 +132,20 @@ export default {
       </div>
     </header>
 
-    <!-- 3大黄金时段调度提示 -->
+    <!-- 3大黄金时段与安全提示 -->
     <div class="schedule-bar">
-      <span>⏰ <b>每日三大实盘黄金触发时段 (0 扣费精准调度)：</b></span>
-      <span class="schedule-item">① 10:00 (早盘起爆)</span>
-      <span class="schedule-item">② 14:00 (午后反包)</span>
-      <span class="schedule-item">③ 15:30 (盘后总复盘)</span>
+      <div>
+        <span>⏰ <b>每日三大自动触发时段：</b></span>
+        <span class="schedule-item">10:00 (早盘起爆)</span> |
+        <span class="schedule-item">14:00 (午后反包)</span> |
+        <span class="schedule-item">15:30 (盘后总复盘)</span>
+      </div>
+      <div style="color:#38bdf8; font-size:0.82rem;">
+        🤖 私人专属指令触发：TG 发送 <code>/pick</code> 或 <code>/quota</code>
+      </div>
     </div>
 
-    <!-- 主界面核心：今日实时推荐买入信号 -->
+    <!-- 主界面核心：实时推荐标的卡片 -->
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
         <h2 style="margin:0; font-size:1.2rem; color:#fff;">🎯 实时精选起爆标的与交易执行方案</h2>
@@ -177,43 +193,17 @@ export default {
         `).join('')}
       </div>
 
-      <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.25rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+      <!-- 防误触安全提示框 -->
+      <div class="secure-notice">
         <div>
-          <button class="btn" onclick="triggerRun('intraday')">⚡ 立即调用大模型生成最新操盘指令</button>
-          <button class="btn btn-outline" onclick="triggerRun('postmarket')">📊 盘后完整复盘</button>
+          🔒 <b>防误触与安全防护生效中：</b> 公开网页已移除所有触发按钮，避免访客意外消耗免费算力。
         </div>
-        <span id="loading" style="display:none; color: #38bdf8; font-weight: 500; font-size:0.9rem;">正在由大模型深度推理中...</span>
+        <div>
+          如需随时手动触发，请在 Telegram 中向你的机器人发送 <code>/pick</code>。
+        </div>
       </div>
     </div>
-    
-    <!-- 投研研判指令卡片 -->
-    <div class="card" id="resCard" style="display: none;">
-      <h2 style="margin-top:0; font-size:1.15rem; color:#fff;">🧠 最新 AI 操盘手指令与复盘分析</h2>
-      <pre id="output"></pre>
-    </div>
   </div>
-
-  <script>
-    async function triggerRun(mode) {
-      const loading = document.getElementById('loading');
-      const resCard = document.getElementById('resCard');
-      const output = document.getElementById('output');
-      
-      loading.style.display = 'inline';
-      try {
-        const res = await fetch('/run?mode=' + mode);
-        const data = await res.json();
-        output.textContent = data.cleanAnalysis || JSON.stringify(data, null, 2);
-        resCard.style.display = 'block';
-        setTimeout(() => location.reload(), 3000);
-      } catch (err) {
-        output.textContent = '执行失败: ' + err.message;
-        resCard.style.display = 'block';
-      } finally {
-        loading.style.display = 'none';
-      }
-    }
-  </script>
 </body>
 </html>`;
 
@@ -223,9 +213,64 @@ export default {
   }
 };
 
-// 算力与 Token 监控追踪器（精确校准 32B 大模型单次推理 ~2.6k Neurons）
+// 处理来自 Telegram 机器人的专属手动指令
+async function handleTelegramCommand(message, env) {
+  const chatId = String(message.chat?.id || '');
+  const authChatId = String(env.TG_CHAT_ID || '1099933423');
+  const text = (message.text || '').trim();
+
+  // 严格权限鉴权：只有管理员本人才能触发
+  if (chatId !== authChatId) {
+    await sendTelegramMessage(env, chatId, '⚠️ 抱歉，该量化投研机器人仅限管理员本人私有调用。');
+    return;
+  }
+
+  // 1. 指令：/quota 或 "算力" / "额度"
+  if (text.startsWith('/quota') || text === '算力' || text === '额度') {
+    const quota = await getAIQuotaUsage(env);
+    const activeEngine = detectActiveModelEngine(env);
+    const reply = `🔋 <b>#【Cloudflare AI 算力实时监控】</b>\n\n` +
+      `🧠 <b>当前激活模型：</b><code>${activeEngine.name}</code>\n` +
+      `📊 <b>今日已消耗：</b>${quota.usedDisplay} / 10,000 Neurons (${quota.usagePercent}%)\n` +
+      `⚡ <b>剩余算力：</b><b>${quota.remDisplay} Neurons</b> (~约可调用 ${quota.approxCallsRemaining} 次)\n` +
+      `🕒 <b>调用次数：</b>${quota.callCount} 次\n` +
+      `🛡️ <b>防扣费熔断：</b>已开启 (安全无忧)\n\n` +
+      `<i>每日 08:00 (UTC 00:00) 自动满血重置</i>`;
+    await sendTelegramMessage(env, chatId, reply);
+    return;
+  }
+
+  // 2. 指令：/pick 或 /run 或 "选股" / "分析" / "触发"
+  if (text.startsWith('/pick') || text.startsWith('/run') || text.includes('选股') || text.includes('分析') || text.includes('触发')) {
+    await sendTelegramMessage(env, chatId, '⚡ <b>已接收手动指令！</b>\n正在实时抓取最新行情并由 DeepSeek-R1 深度推理买卖点，请稍候约 10~20 秒...');
+    await runStockPickerPipeline(env, 'MANUAL_TG');
+    return;
+  }
+
+  // 3. 帮助指令
+  const helpMsg = `🤖 <b>#【量化投研机器人指令集】</b>\n\n` +
+    `• <code>/pick</code> 或 发送 <b>选股</b>：立即执行一次实时量化选股与大模型研判\n` +
+    `• <code>/quota</code> 或 发送 <b>算力</b>：实时查询今日免费算力剩余额度\n` +
+    `• <code>/help</code>：查看帮助指南\n\n` +
+    `🔗 <b>实时看板：</b> https://storka.luckycici.cc`;
+  await sendTelegramMessage(env, chatId, helpMsg);
+}
+
+// 发送 Telegram 消息辅助函数
+async function sendTelegramMessage(env, chatId, text) {
+  if (!env.TG_BOT_TOKEN) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
+    });
+  } catch (e) {}
+}
+
+// 算力与 Token 监控追踪器
 async function getAIQuotaUsage(env) {
-  const TOTAL_FREE_QUOTA = 10000; // Cloudflare 每日免费 10,000 Neurons
+  const TOTAL_FREE_QUOTA = 10000;
   const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
 
   let usage = { usedNeurons: 2600, callCount: 1 };
@@ -426,6 +471,9 @@ async function runStockPickerPipeline(env, mode = 'MORNING_BURST') {
   } else if (mode === 'AFTERNOON_RALLY') {
     timeLabel = '午后反包主升浪研判';
     prompt = `你是一位顶级实盘日内量化交易总监。基于午后 14:00 捕获的 3 只主力发动反包与主升浪龙头标的：\n\n${stocksText}\n\n请针对每只股票输出尾盘进攻与次日套利指令：\n1. 午后承接力与大单抢筹研判\n2. 尾盘买入技巧与持股过夜建议\n3. 交易评级\n\n最后给出当前午后的一句话交易锦囊。极精炼。`;
+  } else if (mode === 'MANUAL_TG') {
+    timeLabel = '管理员专属手动触发研判';
+    prompt = `你是一位顶级实盘量化总监。基于当前盘面即时捕获的 3 只主力异动标的：\n\n${stocksText}\n\n请输出即时实盘操作指令与风控买卖点建议。精炼专业。`;
   } else {
     timeLabel = '每日盘后智能选股与投研报告';
     prompt = `你是一位顶级股票量化基金经理。请基于今日盘后筛选出的 3 只核心标的进行深度复盘研报：\n\n${stocksText}\n\n请输出每只标的的核心逻辑、支撑阻力位、风控建议及次日开盘策略。精炼专业。`;
