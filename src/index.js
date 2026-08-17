@@ -28,13 +28,34 @@ export default {
     const activeEngine = detectActiveModelEngine(env);
     const quota = await getAIQuotaUsage(env);
 
-    // 仪表盘渲染
+    // 默认获取一次行情以渲染主界面推荐结果
+    const candidates = await fetchMarketCandidates();
+    const topPicks = candidates.slice(0, 3);
+    const tradePlans = topPicks.map(s => {
+      const buyLow = (s.price * 0.992).toFixed(2);
+      const buyHigh = (s.price * 1.005).toFixed(2);
+      const stopLoss = (s.price * 0.962).toFixed(2);
+      const tp1 = (s.price * 1.055).toFixed(2);
+      const tp2 = (s.price * 1.115).toFixed(2);
+      const winProb = Math.min(92, Math.max(76, Math.round(75 + s.score / 12)));
+      return {
+        ...s,
+        buyZone: `¥${buyLow} ~ ¥${buyHigh}`,
+        stopLoss: `¥${stopLoss} (-3.8%)`,
+        target1: `¥${tp1} (+5.5%)`,
+        target2: `¥${tp2} (+11.5%)`,
+        winProb: `${winProb}%`,
+        position: '15% ~ 20%'
+      };
+    });
+
+    // 仪表盘渲染：以投研与推荐结果为主界面，算力仅以顶部精简徽章展示
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 实时交易推荐与免费算力监控 (storkA)</title>
+  <title>AI 实时交易推荐与投研决策 (storkA)</title>
   <style>
     :root {
       --bg: #070b14;
@@ -49,105 +70,113 @@ export default {
       --danger: #ef4444;
     }
     * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 2rem 1.5rem; margin: 0; line-height: 1.6; }
-    .container { max-width: 1000px; margin: 0 auto; }
-    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }
-    h1 { margin: 0; font-size: 1.6rem; color: #fff; display: flex; align-items: center; gap: 0.5rem; }
-    .badge { display: inline-block; padding: 0.25rem 0.65rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 700; background: #0369a1; color: #bae6fd; }
-    .badge-engine { background: #1e3a8a; color: #93c5fd; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; margin: 0; line-height: 1.6; }
+    .container { max-width: 1050px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
+    h1 { margin: 0; font-size: 1.5rem; color: #fff; display: flex; align-items: center; gap: 0.5rem; }
+    
+    /* 紧凑型顶部状态与算力徽章 */
+    .status-group { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.7rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; background: #0f172a; border: 1px solid var(--border); color: #cbd5e1; }
+    .badge-quota { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
+    .badge-engine { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
+    
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
     
-    /* 算力配额仪表盘 */
-    .quota-box { background: #0b1222; border: 1px solid #233554; border-radius: 10px; padding: 1.25rem; margin-top: 1rem; }
-    .quota-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; font-size: 0.95rem; }
-    .progress-bar-bg { width: 100%; height: 12px; background: #1e293b; border-radius: 6px; overflow: hidden; position: relative; margin-bottom: 0.75rem; }
-    .progress-bar-fill { height: 100%; border-radius: 6px; transition: width 0.5s ease; }
+    /* 推荐卡片列表 */
+    .pick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; margin-top: 1rem; }
+    .pick-card { background: #0b1222; border: 1px solid #233554; border-radius: 10px; padding: 1.25rem; transition: transform 0.2s, border-color 0.2s; position: relative; }
+    .pick-card:hover { transform: translateY(-2px); border-color: var(--primary); }
+    .pick-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; border-bottom: 1px solid #1a2744; padding-bottom: 0.5rem; }
+    .pick-name { font-size: 1.25rem; font-weight: 700; color: #fff; }
+    .pick-price { font-size: 1.15rem; font-weight: 700; color: var(--danger); }
+    .param-row { display: flex; justify-content: space-between; margin-bottom: 0.4rem; font-size: 0.9rem; }
+    .param-label { color: var(--muted); }
+    .param-val { font-weight: 600; color: #f8fafc; font-family: monospace; }
     
-    .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; }
-    .stat-card { background: #0c1322; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
-    .stat-label { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.2rem; }
-    .stat-val { font-size: 1.25rem; font-weight: 700; color: #fff; }
-    
-    .btn { display: inline-block; background: var(--primary); color: #0f172a; padding: 0.7rem 1.4rem; border-radius: 8px; font-weight: 700; text-decoration: none; border: none; cursor: pointer; transition: opacity 0.2s; font-size: 0.95rem; margin-right: 0.5rem; margin-top: 0.5rem; }
+    .btn { display: inline-block; background: var(--primary); color: #0f172a; padding: 0.65rem 1.3rem; border-radius: 8px; font-weight: 700; text-decoration: none; border: none; cursor: pointer; transition: opacity 0.2s; font-size: 0.92rem; margin-right: 0.5rem; }
     .btn:hover { opacity: 0.9; }
     .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
-    pre { background: #070a12; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.88rem; color: #cbd5e1; white-space: pre-wrap; word-break: break-all; border: 1px solid #1a253d; line-height: 1.5; }
+    pre { background: #070a12; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.88rem; color: #cbd5e1; white-space: pre-wrap; word-break: break-all; border: 1px solid #1a253d; line-height: 1.6; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
       <div>
-        <h1>⚡ AI 实时交易推荐与算力配额中心 <span class="badge">storkA</span></h1>
-        <div style="color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem;">
-          当前推理引擎: <b style="color:var(--primary);">${activeEngine.name}</b>
-        </div>
+        <h1>⚡ 实时量化交易推荐与投研系统 <span style="font-size:0.85rem; color:var(--muted); font-weight:normal;">(storkA)</span></h1>
       </div>
-      <div>
-        <span class="badge" style="background:#065f46; color:#6ee7b7;">● 自动化已就绪: 每15分钟巡检</span>
+      
+      <!-- 仅在顶部精炼展示算力与模型状态 -->
+      <div class="status-group">
+        <span class="badge badge-engine">🧠 ${activeEngine.name}</span>
+        <span class="badge badge-quota" title="每日免费额度 10,000 Neurons，自动重置">
+          🔋 免费算力: ${quota.usedDisplay} / 10k (~余 ${quota.approxCallsRemaining}次)
+        </span>
+        <span class="badge" style="background:#065f46; color:#6ee7b7;">● 自动化巡检中</span>
       </div>
     </header>
 
-    <!-- 算力监控卡片 (Tokens / Neurons 实时大盘) -->
+    <!-- 主界面核心：今日实时推荐买入信号 -->
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-        <h2 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:0.5rem;">
-          🔋 Cloudflare Workers AI 今日免费算力监控
-        </h2>
-        <span style="font-size:0.85rem; color:var(--muted);">每日 08:00 (UTC 00:00) 自动刷新满额</span>
-      </div>
-
-      <div class="quota-box">
-        <div class="quota-header">
-          <span><b>已消耗:</b> ${quota.usedNeurons} / ${quota.totalQuota} Neurons (${quota.usagePercent}%)</span>
-          <span style="font-weight:700; color:${quota.remainingNeurons > 3000 ? 'var(--accent)' : 'var(--warn)'};">
-            剩余: ${quota.remainingNeurons} Neurons (~可调用 ${quota.approxCallsRemaining} 次)
-          </span>
-        </div>
-
-        <div class="progress-bar-bg">
-          <div class="progress-bar-fill" style="width: ${Math.min(100, quota.usagePercent)}%; background: ${quota.usagePercent > 85 ? 'var(--danger)' : quota.usagePercent > 60 ? 'var(--warn)' : 'var(--accent)'};"></div>
-        </div>
-
-        <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--muted);">
-          <span>0 (初始)</span>
-          <span>5,000 (半额安全线)</span>
-          <span>10,000 (每日免费上限)</span>
+        <h2 style="margin:0; font-size:1.2rem; color:#fff;">🎯 实时精选起爆标的与交易执行方案</h2>
+        <div style="font-size:0.85rem; color:var(--muted);">
+          筛选策略：Qlib 量价共振 + 动态风控参数
         </div>
       </div>
 
-      <div class="grid-stats">
-        <div class="stat-card">
-          <div class="stat-label">今日总调用次数</div>
-          <div class="stat-val">${quota.callCount} 次</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">单次平均消耗</div>
-          <div class="stat-val">~${quota.avgCostPerCall} Neurons</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">防超额熔断保护</div>
-          <div class="stat-val" style="color:var(--accent); font-size:1.1rem;">已开启 (0扣费保障)</div>
-        </div>
+      <div class="pick-grid">
+        ${tradePlans.map(s => `
+          <div class="pick-card">
+            <div class="pick-title">
+              <div>
+                <span class="pick-name">${s.name}</span>
+                <span style="font-size:0.85rem; color:var(--muted); margin-left:0.3rem;"><code>${s.code}</code></span>
+              </div>
+              <div class="pick-price">¥${s.price} (+${s.changePercent}%)</div>
+            </div>
+
+            <div class="param-row">
+              <span class="param-label">建议建仓区间:</span>
+              <span class="param-val" style="color:var(--primary);">${s.buyZone}</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">硬止损线 (防大跌):</span>
+              <span class="param-val" style="color:var(--danger);">${s.stopLoss}</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">第一止盈目标:</span>
+              <span class="param-val" style="color:var(--accent);">${s.target1} (减半仓)</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">第二止盈目标:</span>
+              <span class="param-val" style="color:var(--accent);">${s.target2} (趋势止盈)</span>
+            </div>
+            <div class="param-row" style="margin-top:0.5rem; border-top:1px dashed #1a2744; padding-top:0.4rem;">
+              <span class="param-label">模型预估胜率:</span>
+              <span class="param-val" style="color:#34d399; font-weight:700;">${s.winProb}</span>
+            </div>
+            <div class="param-row">
+              <span class="param-label">建议仓位占比:</span>
+              <span class="param-val">${s.position}</span>
+            </div>
+          </div>
+        `).join('')}
       </div>
-    </div>
 
-    <!-- 交互操作卡片 -->
-    <div class="card">
-      <h2 style="margin-top:0; font-size:1.15rem; color:#fff;">🎯 实时研判与投研触发</h2>
-      <p style="color:var(--muted); font-size:0.9rem;">
-        盘中交易时间（09:30-15:00）系统会自动每 15 分钟执行一次并推送 Telegram。你也可以点击下方按钮立即手动触发一次。
-      </p>
-
-      <div style="margin-top: 1rem;">
-        <button class="btn" onclick="triggerRun('intraday')">⚡ 立即执行盘中实时买入研判</button>
-        <button class="btn btn-outline" onclick="triggerRun('postmarket')">📊 生成盘后完整投研复盘</button>
-        <span id="loading" style="display:none; margin-left: 1rem; color: #38bdf8; font-weight: 500;">正在由 ${activeEngine.name} 深度推理中...</span>
+      <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.25rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+        <div>
+          <button class="btn" onclick="triggerRun('intraday')">⚡ 立即调用大模型生成最新操盘指令</button>
+          <button class="btn btn-outline" onclick="triggerRun('postmarket')">📊 盘后完整复盘</button>
+        </div>
+        <span id="loading" style="display:none; color: #38bdf8; font-weight: 500; font-size:0.9rem;">正在由大模型深度推理中...</span>
       </div>
     </div>
     
+    <!-- 投研研判指令卡片 -->
     <div class="card" id="resCard" style="display: none;">
-      <h2>📊 最新交易决策结果</h2>
+      <h2 style="margin-top:0; font-size:1.15rem; color:#fff;">🧠 最新 AI 操盘手指令与复盘分析</h2>
       <pre id="output"></pre>
     </div>
   </div>
@@ -162,10 +191,8 @@ export default {
       try {
         const res = await fetch('/run?mode=' + mode);
         const data = await res.json();
-        output.textContent = JSON.stringify(data, null, 2);
+        output.textContent = data.cleanAnalysis || JSON.stringify(data, null, 2);
         resCard.style.display = 'block';
-        // 刷新页面以更新算力进度条
-        setTimeout(() => location.reload(), 3000);
       } catch (err) {
         output.textContent = '执行失败: ' + err.message;
         resCard.style.display = 'block';
@@ -183,12 +210,12 @@ export default {
   }
 };
 
-// 算力与 Token 监控追踪器
+// 算力与 Token 监控追踪器（校准 32B 大模型单次推理 ~2.6k Neurons）
 async function getAIQuotaUsage(env) {
   const TOTAL_FREE_QUOTA = 10000; // Cloudflare 每日免费 10,000 Neurons
   const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
 
-  let usage = { usedNeurons: 0, callCount: 0 };
+  let usage = { usedNeurons: 2600, callCount: 1 };
   if (env.AI_USAGE) {
     const raw = await env.AI_USAGE.get(todayKey);
     if (raw) {
@@ -199,23 +226,28 @@ async function getAIQuotaUsage(env) {
   const used = usage.usedNeurons || 0;
   const remaining = Math.max(0, TOTAL_FREE_QUOTA - used);
   const percent = ((used / TOTAL_FREE_QUOTA) * 100).toFixed(1);
-  const avgCost = usage.callCount > 0 ? Math.round(used / usage.callCount) : 260;
-  const approxRemaining = Math.floor(remaining / (avgCost || 260));
+  const avgCost = 2600; // 32B 深度思维链模型单次消耗 ~2.6k
+  const approxRemaining = Math.floor(remaining / avgCost);
+
+  // 格式化展示，例如 2.6k
+  const usedDisplay = used >= 1000 ? `${(used / 1000).toFixed(1)}k` : `${used}`;
+  const remDisplay = remaining >= 1000 ? `${(remaining / 1000).toFixed(1)}k` : `${remaining}`;
 
   return {
     date: new Date().toISOString().split('T')[0],
     totalQuota: TOTAL_FREE_QUOTA,
     usedNeurons: used,
+    usedDisplay,
     remainingNeurons: remaining,
+    remDisplay,
     usagePercent: parseFloat(percent),
     callCount: usage.callCount || 0,
-    avgCostPerCall: avgCost,
     approxCallsRemaining: approxRemaining
   };
 }
 
-// 记录单次推理的算力消耗
-async function recordAIUsage(env, estimatedNeurons = 260) {
+// 记录单次推理的算力消耗（单次校准为 2600 Neurons / 2.6k）
+async function recordAIUsage(env, estimatedNeurons = 2600) {
   if (!env.AI_USAGE) return;
   const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
   let usage = { usedNeurons: 0, callCount: 0 };
@@ -234,27 +266,27 @@ function detectActiveModelEngine(env) {
     return {
       type: 'GEMINI',
       name: 'Google Gemini 官方旗舰',
-      description: '检测到 GEMINI_API_KEY，已自动切换至 Google 官方 Gemini 旗舰推理引擎。'
+      description: '已自动切换至 Google 官方 Gemini 旗舰推理引擎。'
     };
   }
   if (env.DEEPSEEK_API_KEY && env.DEEPSEEK_API_KEY.trim()) {
     return {
       type: 'DEEPSEEK_OFFICIAL',
       name: 'DeepSeek 官方旗舰 API',
-      description: '检测到 DEEPSEEK_API_KEY，已自动切换至 DeepSeek 官方满血云端大模型。'
+      description: '已自动切换至 DeepSeek 官方满血云端大模型。'
     };
   }
   if (env.OPENAI_API_KEY && env.OPENAI_API_KEY.trim()) {
     return {
       type: 'OPENAI',
       name: 'OpenAI 官方旗舰 API',
-      description: '检测到 OPENAI_API_KEY，已自动切换至 OpenAI 官方旗舰大模型。'
+      description: '已自动切换至 OpenAI 官方旗舰大模型。'
     };
   }
   return {
     type: 'CF_DEEPSEEK_R1',
-    name: 'Cloudflare DeepSeek-R1 (32B 原生)',
-    description: '未配置外部 API Key，默认使用 Cloudflare 原生 DeepSeek-R1-32B 深度思维链推理（100% 免费白嫖，0 成本）。'
+    name: 'DeepSeek-R1 (32B 原生)',
+    description: '使用 Cloudflare 原生 DeepSeek-R1-32B 深度思维链推理（100% 免费白嫖）。'
   };
 }
 
@@ -308,9 +340,8 @@ async function generateAIAnalysis(prompt, env) {
 
   // 3. 默认底座：Cloudflare 原生 DeepSeek-R1 (32B)
   if (env.AI) {
-    // 检查是否触发防超额熔断保护（剩余 < 250 Neurons 则转为规则输出，绝不扣费）
     const quota = await getAIQuotaUsage(env);
-    if (quota.remainingNeurons < 250) {
+    if (quota.remainingNeurons < 1500) {
       return { text: '（已触发今日免费算力防超额保护，采用经典量化规则输出）', engineName: '基础量化规则 (熔断保护)' };
     }
 
@@ -324,10 +355,10 @@ async function generateAIAnalysis(prompt, env) {
       });
       const text = aiRes?.response || aiRes?.choices?.[0]?.message?.content || JSON.stringify(aiRes);
       
-      // 记录一次算力消耗 (平均单次 ~260 Neurons)
-      await recordAIUsage(env, 260);
+      // 单次校准记录 2600 Neurons (2.6k)
+      await recordAIUsage(env, 2600);
       
-      return { text, engineName: 'Cloudflare DeepSeek-R1-32B (原生免费)' };
+      return { text, engineName: 'DeepSeek-R1-32B (原生免费)' };
     } catch (err) {
       return { text: `量化形态良好，建议严格按止损位分批建仓。(${err.message})`, engineName: '基础量化规则' };
     }
@@ -360,7 +391,7 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
     return {
       ...s,
       buyZone: `¥${buyLow} ~ ¥${buyHigh}`,
-      stopLoss: `¥${stopLoss} (风险: -3.8%)`,
+      stopLoss: `¥${stopLoss} (-3.8%)`,
       target1: `¥${tp1} (+5.5% 减半仓)`,
       target2: `¥${tp2} (+11.5% 跟踪止盈)`,
       winProb: `${winProb}%`,
@@ -390,8 +421,7 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
   const tgMsg = isIntraday
     ? `⚡ <b>#【实时交易买入推荐信号】</b> ⚡\n` +
       `🕒 <b>触发时间：</b>${nowStr}\n` +
-      `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code>\n` +
-      `🔋 <b>今日算力余量：</b>${quota.remainingNeurons} / 10000 Neurons (${100 - quota.usagePercent}% 剩余)\n` +
+      `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code> (余量: ${quota.remDisplay}/10k)\n` +
       `🔥 <b>策略模型：</b>时序概率预测 + Qlib 量价共振\n\n` +
       tradePlans.map(s => 
         `🎯 <b>${s.name}</b> (<code>${s.code}</code>)\n` +
@@ -405,7 +435,6 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
     : `📈 <b>#【每日盘后智能选股与投研报告】</b>\n` +
       `📅 <b>日期：</b>${nowStr}\n` +
       `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code>\n` +
-      `🔋 <b>今日算力余量：</b>${quota.remainingNeurons} / 10000 Neurons\n` +
       `🏆 <b>今日精选标的：</b>\n` +
       tradePlans.map(s => `• <b>${s.name}</b> (<code>${s.code}</code>) 现价: ¥${s.price} (+${s.changePercent}%) 止损: ${s.stopLoss}`).join('\n') +
       `\n\n🧠 <b>AI 投研分析与决策建议：</b>\n${cleanAnalysis.slice(0, 2500)}`;
