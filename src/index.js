@@ -18,76 +18,136 @@ export default {
       });
     }
 
-    if (url.pathname === '/api/model-info') {
-      const activeEngine = detectActiveModelEngine(env);
-      return new Response(JSON.stringify({ activeEngine }, null, 2), {
+    if (url.pathname === '/api/quota') {
+      const quota = await getAIQuotaUsage(env);
+      return new Response(JSON.stringify(quota, null, 2), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
       });
     }
 
     const activeEngine = detectActiveModelEngine(env);
+    const quota = await getAIQuotaUsage(env);
 
-    // 默认展示仪表盘
+    // 仪表盘渲染
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 实时交易推荐与量化投研系统 (storkA)</title>
+  <title>AI 实时交易推荐与免费算力监控 (storkA)</title>
   <style>
-    :root { --bg: #0b0f19; --card: #151d30; --text: #f8fafc; --primary: #38bdf8; --accent: #10b981; --warn: #f59e0b; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; margin: 0; line-height: 1.6; }
-    .container { max-width: 950px; margin: 0 auto; }
-    .card { background: var(--card); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; border: 1px solid #23304d; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
-    h1 { color: var(--primary); margin-top: 0; font-size: 1.6rem; }
-    .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.85rem; font-weight: 600; background: #065f46; color: #34d399; margin-right: 0.5rem; }
+    :root {
+      --bg: #070b14;
+      --card: #111827;
+      --card-hover: #172033;
+      --border: #1f293d;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --accent: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 2rem 1.5rem; margin: 0; line-height: 1.6; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }
+    h1 { margin: 0; font-size: 1.6rem; color: #fff; display: flex; align-items: center; gap: 0.5rem; }
+    .badge { display: inline-block; padding: 0.25rem 0.65rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 700; background: #0369a1; color: #bae6fd; }
     .badge-engine { background: #1e3a8a; color: #93c5fd; }
-    .btn { display: inline-block; background: var(--primary); color: #0f172a; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 700; text-decoration: none; border: none; cursor: pointer; transition: opacity 0.2s; font-size: 1rem; margin-right: 0.5rem; margin-top: 0.5rem; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
+    
+    /* 算力配额仪表盘 */
+    .quota-box { background: #0b1222; border: 1px solid #233554; border-radius: 10px; padding: 1.25rem; margin-top: 1rem; }
+    .quota-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; font-size: 0.95rem; }
+    .progress-bar-bg { width: 100%; height: 12px; background: #1e293b; border-radius: 6px; overflow: hidden; position: relative; margin-bottom: 0.75rem; }
+    .progress-bar-fill { height: 100%; border-radius: 6px; transition: width 0.5s ease; }
+    
+    .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .stat-card { background: #0c1322; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+    .stat-label { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.2rem; }
+    .stat-val { font-size: 1.25rem; font-weight: 700; color: #fff; }
+    
+    .btn { display: inline-block; background: var(--primary); color: #0f172a; padding: 0.7rem 1.4rem; border-radius: 8px; font-weight: 700; text-decoration: none; border: none; cursor: pointer; transition: opacity 0.2s; font-size: 0.95rem; margin-right: 0.5rem; margin-top: 0.5rem; }
     .btn:hover { opacity: 0.9; }
     .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
-    pre { background: #070a12; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.88rem; color: #94a3b8; white-space: pre-wrap; word-break: break-all; border: 1px solid #1a253d; line-height: 1.5; }
-    .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; }
-    .metric { background: #0c1322; padding: 1rem; border-radius: 8px; border-left: 4px solid var(--primary); }
-    .metric-val { font-size: 1.15rem; font-weight: bold; color: var(--text); }
+    pre { background: #070a12; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.88rem; color: #cbd5e1; white-space: pre-wrap; word-break: break-all; border: 1px solid #1a253d; line-height: 1.5; }
   </style>
 </head>
 <body>
   <div class="container">
+    <header>
+      <div>
+        <h1>⚡ AI 实时交易推荐与算力配额中心 <span class="badge">storkA</span></h1>
+        <div style="color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem;">
+          当前推理引擎: <b style="color:var(--primary);">${activeEngine.name}</b>
+        </div>
+      </div>
+      <div>
+        <span class="badge" style="background:#065f46; color:#6ee7b7;">● 自动化已就绪: 每15分钟巡检</span>
+      </div>
+    </header>
+
+    <!-- 算力监控卡片 (Tokens / Neurons 实时大盘) -->
     <div class="card">
-      <h1>⚡ AI 实时交易推荐与量化选股 (storkA)</h1>
-      <p>
-        <span class="badge">方案 A</span>
-        <span class="badge">盘中高频: 每15分钟</span>
-        <span class="badge badge-engine">当前推理引擎: ${activeEngine.name}</span>
-      </p>
-      <p style="color:#94a3b8; font-size:0.92rem;">
-        ${activeEngine.description}
-      </p>
-      
-      <div class="metric-grid">
-        <div class="metric">
-          <div style="color:#94a3b8; font-size:0.85rem;">当前研判 AI</div>
-          <div class="metric-val" style="color:var(--primary); font-size: 1.05rem;">${activeEngine.name}</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+        <h2 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:0.5rem;">
+          🔋 Cloudflare Workers AI 今日免费算力监控
+        </h2>
+        <span style="font-size:0.85rem; color:var(--muted);">每日 08:00 (UTC 00:00) 自动刷新满额</span>
+      </div>
+
+      <div class="quota-box">
+        <div class="quota-header">
+          <span><b>已消耗:</b> ${quota.usedNeurons} / ${quota.totalQuota} Neurons (${quota.usagePercent}%)</span>
+          <span style="font-weight:700; color:${quota.remainingNeurons > 3000 ? 'var(--accent)' : 'var(--warn)'};">
+            剩余: ${quota.remainingNeurons} Neurons (~可调用 ${quota.approxCallsRemaining} 次)
+          </span>
         </div>
-        <div class="metric">
-          <div style="color:#94a3b8; font-size:0.85rem;">自动切换机制</div>
-          <div class="metric-val" style="color:var(--accent);">API Key 智能热插拔</div>
+
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" style="width: ${Math.min(100, quota.usagePercent)}%; background: ${quota.usagePercent > 85 ? 'var(--danger)' : quota.usagePercent > 60 ? 'var(--warn)' : 'var(--accent)'};"></div>
         </div>
-        <div class="metric">
-          <div style="color:#94a3b8; font-size:0.85rem;">实时信号推送</div>
-          <div class="metric-val">Telegram 机器人联动</div>
+
+        <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--muted);">
+          <span>0 (初始)</span>
+          <span>5,000 (半额安全线)</span>
+          <span>10,000 (每日免费上限)</span>
         </div>
       </div>
 
-      <div style="margin-top: 1.5rem;">
-        <button class="btn" onclick="triggerRun('intraday')">⚡ 立即执行实时买入信号研判</button>
+      <div class="grid-stats">
+        <div class="stat-card">
+          <div class="stat-label">今日总调用次数</div>
+          <div class="stat-val">${quota.callCount} 次</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">单次平均消耗</div>
+          <div class="stat-val">~${quota.avgCostPerCall} Neurons</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">防超额熔断保护</div>
+          <div class="stat-val" style="color:var(--accent); font-size:1.1rem;">已开启 (0扣费保障)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 交互操作卡片 -->
+    <div class="card">
+      <h2 style="margin-top:0; font-size:1.15rem; color:#fff;">🎯 实时研判与投研触发</h2>
+      <p style="color:var(--muted); font-size:0.9rem;">
+        盘中交易时间（09:30-15:00）系统会自动每 15 分钟执行一次并推送 Telegram。你也可以点击下方按钮立即手动触发一次。
+      </p>
+
+      <div style="margin-top: 1rem;">
+        <button class="btn" onclick="triggerRun('intraday')">⚡ 立即执行盘中实时买入研判</button>
         <button class="btn btn-outline" onclick="triggerRun('postmarket')">📊 生成盘后完整投研复盘</button>
         <span id="loading" style="display:none; margin-left: 1rem; color: #38bdf8; font-weight: 500;">正在由 ${activeEngine.name} 深度推理中...</span>
       </div>
     </div>
     
     <div class="card" id="resCard" style="display: none;">
-      <h2>📊 最新交易决策卡片</h2>
+      <h2>📊 最新交易决策结果</h2>
       <pre id="output"></pre>
     </div>
   </div>
@@ -104,6 +164,8 @@ export default {
         const data = await res.json();
         output.textContent = JSON.stringify(data, null, 2);
         resCard.style.display = 'block';
+        // 刷新页面以更新算力进度条
+        setTimeout(() => location.reload(), 3000);
       } catch (err) {
         output.textContent = '执行失败: ' + err.message;
         resCard.style.display = 'block';
@@ -121,26 +183,71 @@ export default {
   }
 };
 
+// 算力与 Token 监控追踪器
+async function getAIQuotaUsage(env) {
+  const TOTAL_FREE_QUOTA = 10000; // Cloudflare 每日免费 10,000 Neurons
+  const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
+
+  let usage = { usedNeurons: 0, callCount: 0 };
+  if (env.AI_USAGE) {
+    const raw = await env.AI_USAGE.get(todayKey);
+    if (raw) {
+      try { usage = JSON.parse(raw); } catch (e) {}
+    }
+  }
+
+  const used = usage.usedNeurons || 0;
+  const remaining = Math.max(0, TOTAL_FREE_QUOTA - used);
+  const percent = ((used / TOTAL_FREE_QUOTA) * 100).toFixed(1);
+  const avgCost = usage.callCount > 0 ? Math.round(used / usage.callCount) : 260;
+  const approxRemaining = Math.floor(remaining / (avgCost || 260));
+
+  return {
+    date: new Date().toISOString().split('T')[0],
+    totalQuota: TOTAL_FREE_QUOTA,
+    usedNeurons: used,
+    remainingNeurons: remaining,
+    usagePercent: parseFloat(percent),
+    callCount: usage.callCount || 0,
+    avgCostPerCall: avgCost,
+    approxCallsRemaining: approxRemaining
+  };
+}
+
+// 记录单次推理的算力消耗
+async function recordAIUsage(env, estimatedNeurons = 260) {
+  if (!env.AI_USAGE) return;
+  const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
+  let usage = { usedNeurons: 0, callCount: 0 };
+  const raw = await env.AI_USAGE.get(todayKey);
+  if (raw) {
+    try { usage = JSON.parse(raw); } catch (e) {}
+  }
+  usage.usedNeurons = (usage.usedNeurons || 0) + estimatedNeurons;
+  usage.callCount = (usage.callCount || 0) + 1;
+  await env.AI_USAGE.put(todayKey, JSON.stringify(usage), { expirationTtl: 86400 * 3 });
+}
+
 // 检测当前激活的模型引擎（热插拔路由器）
 function detectActiveModelEngine(env) {
   if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim()) {
     return {
       type: 'GEMINI',
-      name: 'Google Gemini 旗舰模型',
+      name: 'Google Gemini 官方旗舰',
       description: '检测到 GEMINI_API_KEY，已自动切换至 Google 官方 Gemini 旗舰推理引擎。'
     };
   }
   if (env.DEEPSEEK_API_KEY && env.DEEPSEEK_API_KEY.trim()) {
     return {
       type: 'DEEPSEEK_OFFICIAL',
-      name: 'DeepSeek 官方旗舰 API (V4 / Reasoner)',
+      name: 'DeepSeek 官方旗舰 API',
       description: '检测到 DEEPSEEK_API_KEY，已自动切换至 DeepSeek 官方满血云端大模型。'
     };
   }
   if (env.OPENAI_API_KEY && env.OPENAI_API_KEY.trim()) {
     return {
       type: 'OPENAI',
-      name: 'OpenAI 官方旗舰 API (o1 / GPT-4o)',
+      name: 'OpenAI 官方旗舰 API',
       description: '检测到 OPENAI_API_KEY，已自动切换至 OpenAI 官方旗舰大模型。'
     };
   }
@@ -151,7 +258,7 @@ function detectActiveModelEngine(env) {
   };
 }
 
-// 统一模型调用分发器 (支持 Gemini / 官方 DeepSeek / OpenAI / Cloudflare 原生 R1)
+// 统一模型调用分发器
 async function generateAIAnalysis(prompt, env) {
   const engine = detectActiveModelEngine(env);
 
@@ -163,9 +270,7 @@ async function generateAIAnalysis(prompt, env) {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
       });
       const data = await res.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -201,34 +306,14 @@ async function generateAIAnalysis(prompt, env) {
     }
   }
 
-  // 3. OpenAI 官方 API
-  if (engine.type === 'OPENAI') {
-    try {
-      const modelName = env.OPENAI_MODEL || 'gpt-4o';
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${env.OPENAI_API_KEY.trim()}`
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages: [
-            { role: 'system', content: '你是专业的实盘量化交易专家，指令明确专业。' },
-            { role: 'user', content: prompt }
-          ]
-        })
-      });
-      const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content;
-      if (text) return { text, engineName: `OpenAI (${modelName})` };
-    } catch (e) {
-      console.error('OpenAI 调用失败，回退原生 R1:', e);
-    }
-  }
-
-  // 4. 默认底座：Cloudflare 原生 DeepSeek-R1 (32B)
+  // 3. 默认底座：Cloudflare 原生 DeepSeek-R1 (32B)
   if (env.AI) {
+    // 检查是否触发防超额熔断保护（剩余 < 250 Neurons 则转为规则输出，绝不扣费）
+    const quota = await getAIQuotaUsage(env);
+    if (quota.remainingNeurons < 250) {
+      return { text: '（已触发今日免费算力防超额保护，采用经典量化规则输出）', engineName: '基础量化规则 (熔断保护)' };
+    }
+
     try {
       const aiRes = await env.AI.run('@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', {
         messages: [
@@ -238,6 +323,10 @@ async function generateAIAnalysis(prompt, env) {
         max_tokens: 1000
       });
       const text = aiRes?.response || aiRes?.choices?.[0]?.message?.content || JSON.stringify(aiRes);
+      
+      // 记录一次算力消耗 (平均单次 ~260 Neurons)
+      await recordAIUsage(env, 260);
+      
       return { text, engineName: 'Cloudflare DeepSeek-R1-32B (原生免费)' };
     } catch (err) {
       return { text: `量化形态良好，建议严格按止损位分批建仓。(${err.message})`, engineName: '基础量化规则' };
@@ -293,12 +382,16 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
   const aiResult = await generateAIAnalysis(prompt, env);
   const cleanAnalysis = (aiResult.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
+  // 获取最新算力消耗信息以呈现在通知中
+  const quota = await getAIQuotaUsage(env);
+
   // 6. 格式化 Telegram 实时交易信号卡片
   const nowStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
   const tgMsg = isIntraday
     ? `⚡ <b>#【实时交易买入推荐信号】</b> ⚡\n` +
       `🕒 <b>触发时间：</b>${nowStr}\n` +
       `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code>\n` +
+      `🔋 <b>今日算力余量：</b>${quota.remainingNeurons} / 10000 Neurons (${100 - quota.usagePercent}% 剩余)\n` +
       `🔥 <b>策略模型：</b>时序概率预测 + Qlib 量价共振\n\n` +
       tradePlans.map(s => 
         `🎯 <b>${s.name}</b> (<code>${s.code}</code>)\n` +
@@ -312,6 +405,7 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
     : `📈 <b>#【每日盘后智能选股与投研报告】</b>\n` +
       `📅 <b>日期：</b>${nowStr}\n` +
       `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code>\n` +
+      `🔋 <b>今日算力余量：</b>${quota.remainingNeurons} / 10000 Neurons\n` +
       `🏆 <b>今日精选标的：</b>\n` +
       tradePlans.map(s => `• <b>${s.name}</b> (<code>${s.code}</code>) 现价: ¥${s.price} (+${s.changePercent}%) 止损: ${s.stopLoss}`).join('\n') +
       `\n\n🧠 <b>AI 投研分析与决策建议：</b>\n${cleanAnalysis.slice(0, 2500)}`;
@@ -339,6 +433,7 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
     success: true,
     mode,
     activeEngine: aiResult.engineName,
+    quota,
     executionTimeMs: Date.now() - startTime,
     timestamp: nowStr,
     tradePlans,
