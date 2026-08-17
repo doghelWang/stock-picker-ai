@@ -565,6 +565,23 @@ async function runStockPickerPipeline(env, mode = 'MORNING_BURST') {
   const aiResult = await generateAIAnalysis(prompt, env);
   const cleanAnalysis = (aiResult.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
+  // 6. 【全自动模拟实盘炒股买入】自动将评分最高的龙头标的买入 100 万模拟账户
+  if (topPicks.length > 0) {
+    const bestStock = topPicks[0];
+    try {
+      fetch('https://stock-screener-hub.wangrunxi30.workers.dev/api/trade/buy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: bestStock.code,
+          name: bestStock.name,
+          price: bestStock.price,
+          reason: `AI 实时量化起爆信号 (评分: ${bestStock.score.toFixed(1)})`
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
   // 获取最新算力消耗信息以呈现在通知中
   const quota = await getAIQuotaUsage(env);
 
