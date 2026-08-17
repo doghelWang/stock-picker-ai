@@ -210,7 +210,7 @@ export default {
   }
 };
 
-// 算力与 Token 监控追踪器（校准 32B 大模型单次推理 ~2.6k Neurons）
+// 算力与 Token 监控追踪器（精确校准 32B 大模型单次推理 ~2.6k Neurons）
 async function getAIQuotaUsage(env) {
   const TOTAL_FREE_QUOTA = 10000; // Cloudflare 每日免费 10,000 Neurons
   const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
@@ -219,17 +219,20 @@ async function getAIQuotaUsage(env) {
   if (env.AI_USAGE) {
     const raw = await env.AI_USAGE.get(todayKey);
     if (raw) {
-      try { usage = JSON.parse(raw); } catch (e) {}
+      try { 
+        usage = JSON.parse(raw); 
+        if (usage.usedNeurons < 1000 && usage.callCount > 0) {
+          usage.usedNeurons = usage.callCount * 2600;
+        }
+      } catch (e) {}
     }
   }
 
-  const used = usage.usedNeurons || 0;
+  const used = Math.min(TOTAL_FREE_QUOTA, usage.usedNeurons || 0);
   const remaining = Math.max(0, TOTAL_FREE_QUOTA - used);
   const percent = ((used / TOTAL_FREE_QUOTA) * 100).toFixed(1);
-  const avgCost = 2600; // 32B 深度思维链模型单次消耗 ~2.6k
-  const approxRemaining = Math.floor(remaining / avgCost);
+  const approxRemaining = Math.floor(remaining / 2600);
 
-  // 格式化展示，例如 2.6k
   const usedDisplay = used >= 1000 ? `${(used / 1000).toFixed(1)}k` : `${used}`;
   const remDisplay = remaining >= 1000 ? `${(remaining / 1000).toFixed(1)}k` : `${remaining}`;
 
