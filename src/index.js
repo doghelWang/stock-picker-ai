@@ -255,6 +255,7 @@ async function handleTelegramCommand(message, env) {
         : '（当前暂无持仓）';
 
       const pMsg = `💰 <b>#【100万模拟实盘账户资产大盘】</b>\n\n` +
+        `❄️ <b>雪球实盘组合：</b><code>ZH3664845</code> (已完成绑定)\n` +
         `💵 <b>总资产 (净值)：</b>¥${acc.totalAsset.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}\n` +
         `📈 <b>累计收益率：</b><b style="color:${acc.totalPnLPercent >= 0 ? '#34d399' : '#f87171'}">${acc.totalPnLPercent >= 0 ? '+' : ''}${acc.totalPnLPercent}%</b>\n` +
         `🪙 <b>可用现金余额：</b>¥${acc.cash.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}\n` +
@@ -263,7 +264,12 @@ async function handleTelegramCommand(message, env) {
         `🔗 <b>完整交割单与看板：</b> https://storkb.luckycici.cc`;
 
       const inlineBtn = {
-        inline_keyboard: [[{ text: "🚀 点击直接打开模拟实盘看板", url: "https://storkb.luckycici.cc" }]]
+        inline_keyboard: [
+          [
+            { text: "❄️ 在雪球 App 查看组合 (ZH3664845)", url: "https://xueqiu.com/p/ZH3664845" },
+            { text: "📊 打开 storkB 看板", url: "https://storkb.luckycici.cc" }
+          ]
+        ]
       };
       await sendTelegramMessageWithInline(env, chatId, pMsg, inlineBtn);
     } catch (e) {
