@@ -1,9 +1,14 @@
 export default {
-  // 1. 定时触发任务（盘中高频巡检 + 盘后总结）
+  // 1. 【科学优化后的 3 大黄金交易时段触发器】
   async scheduled(event, env, ctx) {
     const beijingHour = (new Date().getUTCHours() + 8) % 24;
-    const isPostMarket = beijingHour === 15 || beijingHour === 16;
-    ctx.waitUntil(runStockPickerPipeline(env, isPostMarket ? 'POST_MARKET' : 'INTRADAY'));
+    let mode = 'MORNING_BURST'; // 10:00 早盘起爆
+    if (beijingHour >= 13 && beijingHour <= 14) {
+      mode = 'AFTERNOON_RALLY'; // 14:00 午后反包
+    } else if (beijingHour >= 15) {
+      mode = 'POST_MARKET';     // 15:30 盘后总复盘
+    }
+    ctx.waitUntil(runStockPickerPipeline(env, mode));
   },
 
   // 2. HTTP 交互接口
@@ -11,7 +16,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === '/run') {
-      const mode = url.searchParams.get('mode') === 'intraday' ? 'INTRADAY' : 'POST_MARKET';
+      const mode = url.searchParams.get('mode') || 'INTRADAY';
       const result = await runStockPickerPipeline(env, mode);
       return new Response(JSON.stringify(result, null, 2), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
@@ -49,7 +54,6 @@ export default {
       };
     });
 
-    // 仪表盘渲染：以投研与推荐结果为主界面，算力仅以顶部精简徽章展示
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -75,7 +79,6 @@ export default {
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
     h1 { margin: 0; font-size: 1.5rem; color: #fff; display: flex; align-items: center; gap: 0.5rem; }
     
-    /* 紧凑型顶部状态与算力徽章 */
     .status-group { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.7rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; background: #0f172a; border: 1px solid var(--border); color: #cbd5e1; }
     .badge-quota { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
@@ -83,7 +86,9 @@ export default {
     
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
     
-    /* 推荐卡片列表 */
+    .schedule-bar { display: flex; gap: 1rem; background: #0b1222; border: 1px solid #1e293b; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.88rem; color: #94a3b8; margin-bottom: 1.25rem; align-items: center; flex-wrap: wrap; }
+    .schedule-item { color: #e2e8f0; font-weight: 600; }
+    
     .pick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; margin-top: 1rem; }
     .pick-card { background: #0b1222; border: 1px solid #233554; border-radius: 10px; padding: 1.25rem; transition: transform 0.2s, border-color 0.2s; position: relative; }
     .pick-card:hover { transform: translateY(-2px); border-color: var(--primary); }
@@ -107,15 +112,22 @@ export default {
         <h1>⚡ 实时量化交易推荐与投研系统 <span style="font-size:0.85rem; color:var(--muted); font-weight:normal;">(storkA)</span></h1>
       </div>
       
-      <!-- 仅在顶部精炼展示算力与模型状态 -->
       <div class="status-group">
         <span class="badge badge-engine">🧠 ${activeEngine.name}</span>
         <span class="badge badge-quota" title="每日免费额度 10,000 Neurons，自动重置">
           🔋 免费算力: ${quota.usedDisplay} / 10k (~余 ${quota.approxCallsRemaining}次)
         </span>
-        <span class="badge" style="background:#065f46; color:#6ee7b7;">● 自动化巡检中</span>
+        <span class="badge" style="background:#065f46; color:#6ee7b7;">● 自动化已就绪</span>
       </div>
     </header>
+
+    <!-- 3大黄金时段调度提示 -->
+    <div class="schedule-bar">
+      <span>⏰ <b>每日三大实盘黄金触发时段 (0 扣费精准调度)：</b></span>
+      <span class="schedule-item">① 10:00 (早盘起爆)</span>
+      <span class="schedule-item">② 14:00 (午后反包)</span>
+      <span class="schedule-item">③ 15:30 (盘后总复盘)</span>
+    </div>
 
     <!-- 主界面核心：今日实时推荐买入信号 -->
     <div class="card">
@@ -193,6 +205,7 @@ export default {
         const data = await res.json();
         output.textContent = data.cleanAnalysis || JSON.stringify(data, null, 2);
         resCard.style.display = 'block';
+        setTimeout(() => location.reload(), 3000);
       } catch (err) {
         output.textContent = '执行失败: ' + err.message;
         resCard.style.display = 'block';
@@ -249,7 +262,7 @@ async function getAIQuotaUsage(env) {
   };
 }
 
-// 记录单次推理的算力消耗（单次校准为 2600 Neurons / 2.6k）
+// 记录单次推理的算力消耗
 async function recordAIUsage(env, estimatedNeurons = 2600) {
   if (!env.AI_USAGE) return;
   const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
@@ -263,7 +276,7 @@ async function recordAIUsage(env, estimatedNeurons = 2600) {
   await env.AI_USAGE.put(todayKey, JSON.stringify(usage), { expirationTtl: 86400 * 3 });
 }
 
-// 检测当前激活的模型引擎（热插拔路由器）
+// 检测当前激活的模型引擎
 function detectActiveModelEngine(env) {
   if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim()) {
     return {
@@ -358,9 +371,7 @@ async function generateAIAnalysis(prompt, env) {
       });
       const text = aiRes?.response || aiRes?.choices?.[0]?.message?.content || JSON.stringify(aiRes);
       
-      // 单次校准记录 2600 Neurons (2.6k)
       await recordAIUsage(env, 2600);
-      
       return { text, engineName: 'DeepSeek-R1-32B (原生免费)' };
     } catch (err) {
       return { text: `量化形态良好，建议严格按止损位分批建仓。(${err.message})`, engineName: '基础量化规则' };
@@ -371,7 +382,7 @@ async function generateAIAnalysis(prompt, env) {
 }
 
 // 核心流程：量化漏斗 -> 股价概率预测 -> 买卖点生成 -> Telegram 实时通知
-async function runStockPickerPipeline(env, mode = 'INTRADAY') {
+async function runStockPickerPipeline(env, mode = 'MORNING_BURST') {
   const startTime = Date.now();
   
   // 1. 抓取大盘核心活跃股票池
@@ -407,10 +418,18 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
     `${idx + 1}. [${s.code}] ${s.name} - 现价: ¥${s.price}, 涨幅: +${s.changePercent}%, 成交额: ${(s.amount / 10000).toFixed(2)}亿元\n   预设参数: 建议买入区间: ${s.buyZone}, 止损价: ${s.stopLoss}, 目标位: ${s.target1}`
   ).join('\n');
 
-  const isIntraday = mode === 'INTRADAY';
-  const prompt = isIntraday
-    ? `你是一位顶级实盘日内量化交易总监。基于盘中实时捕获的3只放量起爆强势龙头股：\n\n${stocksText}\n\n请针对每只股票输出精简实盘操作指令：\n1. 盘中起爆形态确认与分时量价异动逻辑\n2. 挂单买入技巧（如何利用分时均线低吸防追高）\n3. 交易评级（🌟🌟🌟🌟🌟 强烈推荐买入 / 🌟🌟🌟🌟 重点关注）\n\n最后给出当前分时盘面的一句话交易锦囊。语言极其精炼直接。`
-    : `你是一位顶级股票量化基金经理。请基于今日盘后筛选出的3只核心标的进行深度复盘研报：\n\n${stocksText}\n\n请输出每只标的的核心逻辑、支撑阻力位、风控建议及次日开盘策略。精炼专业。`;
+  let prompt = '';
+  let timeLabel = '实时交易买入推荐';
+  if (mode === 'MORNING_BURST') {
+    timeLabel = '早盘起爆买点确认';
+    prompt = `你是一位顶级实盘日内量化交易总监。基于早盘 10:00 捕获的 3 只主力放量起爆龙头标的：\n\n${stocksText}\n\n请针对每只股票输出早盘建仓指令：\n1. 盘中起爆形态确认与分时量价异动逻辑\n2. 挂单买入技巧（如何利用分时均线低吸防追高）\n3. 交易评级（🌟🌟🌟🌟🌟 强烈推荐买入 / 🌟🌟🌟🌟 重点关注）\n\n最后给出当前早盘的一句话交易锦囊。极精炼。`;
+  } else if (mode === 'AFTERNOON_RALLY') {
+    timeLabel = '午后反包主升浪研判';
+    prompt = `你是一位顶级实盘日内量化交易总监。基于午后 14:00 捕获的 3 只主力发动反包与主升浪龙头标的：\n\n${stocksText}\n\n请针对每只股票输出尾盘进攻与次日套利指令：\n1. 午后承接力与大单抢筹研判\n2. 尾盘买入技巧与持股过夜建议\n3. 交易评级\n\n最后给出当前午后的一句话交易锦囊。极精炼。`;
+  } else {
+    timeLabel = '每日盘后智能选股与投研报告';
+    prompt = `你是一位顶级股票量化基金经理。请基于今日盘后筛选出的 3 只核心标的进行深度复盘研报：\n\n${stocksText}\n\n请输出每只标的的核心逻辑、支撑阻力位、风控建议及次日开盘策略。精炼专业。`;
+  }
 
   // 5. 由统一多模态路由器进行推理研判
   const aiResult = await generateAIAnalysis(prompt, env);
@@ -421,26 +440,19 @@ async function runStockPickerPipeline(env, mode = 'INTRADAY') {
 
   // 6. 格式化 Telegram 实时交易信号卡片
   const nowStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  const tgMsg = isIntraday
-    ? `⚡ <b>#【实时交易买入推荐信号】</b> ⚡\n` +
-      `🕒 <b>触发时间：</b>${nowStr}\n` +
-      `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code> (余量: ${quota.remDisplay}/10k)\n` +
-      `🔥 <b>策略模型：</b>时序概率预测 + Qlib 量价共振\n\n` +
-      tradePlans.map(s => 
-        `🎯 <b>${s.name}</b> (<code>${s.code}</code>)\n` +
-        `• <b>现价：</b>¥${s.price} (<b>+${s.changePercent}%</b>) | <b>胜率：</b>${s.winProb}\n` +
-        `• <b>建议建仓区间：</b><code>${s.buyZone}</code>\n` +
-        `• <b>严格止损价：</b><code>${s.stopLoss}</code>\n` +
-        `• <b>止盈目标：</b>${s.target1} / ${s.target2}\n` +
-        `• <b>仓位建议：</b>${s.position}`
-      ).join('\n\n') +
-      `\n\n🧠 <b>AI 操盘手指令：</b>\n${cleanAnalysis.slice(0, 2500)}`
-    : `📈 <b>#【每日盘后智能选股与投研报告】</b>\n` +
-      `📅 <b>日期：</b>${nowStr}\n` +
-      `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code>\n` +
-      `🏆 <b>今日精选标的：</b>\n` +
-      tradePlans.map(s => `• <b>${s.name}</b> (<code>${s.code}</code>) 现价: ¥${s.price} (+${s.changePercent}%) 止损: ${s.stopLoss}`).join('\n') +
-      `\n\n🧠 <b>AI 投研分析与决策建议：</b>\n${cleanAnalysis.slice(0, 2500)}`;
+  const tgMsg = `⚡ <b>#【${timeLabel}】</b> ⚡\n` +
+    `🕒 <b>触发时间：</b>${nowStr}\n` +
+    `🧠 <b>研判大模型：</b><code>${aiResult.engineName}</code> (余量: ${quota.remDisplay}/10k)\n` +
+    `🔥 <b>策略模型：</b>时序概率预测 + Qlib 量价共振\n\n` +
+    tradePlans.map(s => 
+      `🎯 <b>${s.name}</b> (<code>${s.code}</code>)\n` +
+      `• <b>现价：</b>¥${s.price} (<b>+${s.changePercent}%</b>) | <b>胜率：</b>${s.winProb}\n` +
+      `• <b>建议建仓区间：</b><code>${s.buyZone}</code>\n` +
+      `• <b>严格止损价：</b><code>${s.stopLoss}</code>\n` +
+      `• <b>止盈目标：</b>${s.target1} / ${s.target2}\n` +
+      `• <b>仓位建议：</b>${s.position}`
+    ).join('\n\n') +
+    `\n\n🧠 <b>AI 操盘手指令：</b>\n${cleanAnalysis.slice(0, 2500)}`;
 
   let tgSent = false;
   if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
