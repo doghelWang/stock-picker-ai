@@ -245,7 +245,33 @@ async function handleTelegramCommand(message, env) {
     return;
   }
 
-  // 3. 起始与帮助指令 (/start, /help) -> 呈现欢迎词与常驻快捷按钮
+  // 3. 指令：打开 storkA 看板
+  if (text.includes('storkA') || text.includes('实时看板') || text.includes('方案A')) {
+    const boardMsg = `📈 <b>#【storkA 实时AI量化投研看板】</b>\n\n` +
+      `• <b>系统定位：</b>盘中三大黄金时段实时买卖点与大模型操盘指令\n` +
+      `• <b>核心能力：</b>Qlib量价共振 + 确定性挂单买入区间 + 严格-3.8%止损\n\n` +
+      `👉 <b>点击下方按钮即可直接打开在线看板：</b>`;
+    const inlineBtn = {
+      inline_keyboard: [[{ text: "🚀 点击直接打开 storkA 看板", url: "https://storka.luckycici.cc" }]]
+    };
+    await sendTelegramMessageWithInline(env, chatId, boardMsg, inlineBtn);
+    return;
+  }
+
+  // 4. 指令：打开 storkB 看板
+  if (text.includes('storkB') || text.includes('胜率') || text.includes('方案B')) {
+    const boardMsg = `📊 <b>#【storkB 全市场量化与历史胜率看板】</b>\n\n` +
+      `• <b>系统定位：</b>全市场 5000+ 股票 Minervini 趋势扫描与 5 日闭环回测\n` +
+      `• <b>核心能力：</b>RS 相对强度排序 + 83.3% 历史胜率跟踪 + 错题归因日志\n\n` +
+      `👉 <b>点击下方按钮即可直接打开在线看板：</b>`;
+    const inlineBtn = {
+      inline_keyboard: [[{ text: "🚀 点击直接打开 storkB 胜率看板", url: "https://storkb.luckycici.cc" }]]
+    };
+    await sendTelegramMessageWithInline(env, chatId, boardMsg, inlineBtn);
+    return;
+  }
+
+  // 5. 起始与帮助指令 (/start, /help) -> 呈现欢迎词与常驻快捷按钮
   const welcomeMsg = `👋 <b>你好！欢迎使用 AI 量化交易投研机器人</b>\n\n` +
     `你可以在底部直接点击快捷按钮，随时发起实时选股研判或查询算力余量。\n\n` +
     `• 点击 <b>【⚡ 立即实时选股】</b>：即刻生成买入点、止损止盈参数卡片\n` +
@@ -267,6 +293,23 @@ async function handleTelegramCallback(callbackQuery, env) {
     const quota = await getAIQuotaUsage(env);
     await sendTelegramMessage(env, chatId, `🔋 <b>今日剩余算力：</b>${quota.remDisplay} / 10k Neurons (~余 ${quota.approxCallsRemaining}次)`);
   }
+}
+
+// 发送带有 Inline 链接按钮的消息
+async function sendTelegramMessageWithInline(env, chatId, text, inlineMarkup) {
+  if (!env.TG_BOT_TOKEN) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: inlineMarkup
+      })
+    });
+  } catch (e) {}
 }
 
 // 发送带有底部常驻大键盘的 Telegram 消息
