@@ -15,12 +15,14 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // 接收 Telegram 机器人指令（仅授权给管理员私聊触发）
+    // 接收 Telegram 机器人指令（支持按钮点击交互）
     if (url.pathname === '/api/telegram-webhook' && request.method === 'POST') {
       try {
         const update = await request.json();
         if (update?.message) {
           ctx.waitUntil(handleTelegramCommand(update.message, env));
+        } else if (update?.callback_query) {
+          ctx.waitUntil(handleTelegramCallback(update.callback_query, env));
         }
         return new Response('OK');
       } catch (err) {
@@ -70,7 +72,6 @@ export default {
       };
     });
 
-    // 纯净只读看板（已去除任何公共触发按钮，防止访客盗刷）
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -132,7 +133,6 @@ export default {
       </div>
     </header>
 
-    <!-- 3大黄金时段与安全提示 -->
     <div class="schedule-bar">
       <div>
         <span>⏰ <b>每日三大自动触发时段：</b></span>
@@ -141,11 +141,10 @@ export default {
         <span class="schedule-item">15:30 (盘后总复盘)</span>
       </div>
       <div style="color:#38bdf8; font-size:0.82rem;">
-        🤖 私人专属指令触发：TG 发送 <code>/pick</code> 或 <code>/quota</code>
+        🤖 Telegram 底部常驻按钮与快捷菜单已激活
       </div>
     </div>
 
-    <!-- 主界面核心：实时推荐标的卡片 -->
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
         <h2 style="margin:0; font-size:1.2rem; color:#fff;">🎯 实时精选起爆标的与交易执行方案</h2>
@@ -193,13 +192,12 @@ export default {
         `).join('')}
       </div>
 
-      <!-- 防误触安全提示框 -->
       <div class="secure-notice">
         <div>
           🔒 <b>防误触与安全防护生效中：</b> 公开网页已移除所有触发按钮，避免访客意外消耗免费算力。
         </div>
         <div>
-          如需随时手动触发，请在 Telegram 中向你的机器人发送 <code>/pick</code>。
+          随时可以在 Telegram 机器人底部点击 <b>【⚡ 立即实时选股】</b> 按钮一键触发。
         </div>
       </div>
     </div>
@@ -213,7 +211,7 @@ export default {
   }
 };
 
-// 处理来自 Telegram 机器人的专属手动指令
+// 处理来自 Telegram 机器人的专属指令与底部大按钮
 async function handleTelegramCommand(message, env) {
   const chatId = String(message.chat?.id || '');
   const authChatId = String(env.TG_CHAT_ID || '1099933423');
@@ -225,38 +223,79 @@ async function handleTelegramCommand(message, env) {
     return;
   }
 
-  // 1. 指令：/quota 或 "算力" / "额度"
-  if (text.startsWith('/quota') || text === '算力' || text === '额度') {
+  // 1. 指令：/quota 或 "🔋 查询剩余算力" / "算力"
+  if (text.startsWith('/quota') || text.includes('算力') || text.includes('额度')) {
     const quota = await getAIQuotaUsage(env);
     const activeEngine = detectActiveModelEngine(env);
-    const reply = `🔋 <b>#【Cloudflare AI 算力实时监控】</b>\n\n` +
+    const reply = `🔋 <b>#【Cloudflare AI 算力实时大盘】</b>\n\n` +
       `🧠 <b>当前激活模型：</b><code>${activeEngine.name}</code>\n` +
       `📊 <b>今日已消耗：</b>${quota.usedDisplay} / 10,000 Neurons (${quota.usagePercent}%)\n` +
       `⚡ <b>剩余算力：</b><b>${quota.remDisplay} Neurons</b> (~约可调用 ${quota.approxCallsRemaining} 次)\n` +
       `🕒 <b>调用次数：</b>${quota.callCount} 次\n` +
-      `🛡️ <b>防扣费熔断：</b>已开启 (安全无忧)\n\n` +
-      `<i>每日 08:00 (UTC 00:00) 自动满血重置</i>`;
-    await sendTelegramMessage(env, chatId, reply);
+      `🛡️ <b>防扣费熔断：</b>已开启 (0 扣费保障)\n\n` +
+      `<i>每日 08:00 (UTC 00:00) 自动重置为 10k 满额</i>`;
+    await sendTelegramMessageWithKeyboard(env, chatId, reply);
     return;
   }
 
-  // 2. 指令：/pick 或 /run 或 "选股" / "分析" / "触发"
+  // 2. 指令：/pick 或 /run 或 "⚡ 立即实时选股" / "选股" / "分析"
   if (text.startsWith('/pick') || text.startsWith('/run') || text.includes('选股') || text.includes('分析') || text.includes('触发')) {
-    await sendTelegramMessage(env, chatId, '⚡ <b>已接收手动指令！</b>\n正在实时抓取最新行情并由 DeepSeek-R1 深度推理买卖点，请稍候约 10~20 秒...');
+    await sendTelegramMessage(env, chatId, '⚡ <b>已接收手动选股指令！</b>\n正在抓取大盘活跃池并由 DeepSeek-R1 生成最新买卖点，请稍候约 10~20 秒...');
     await runStockPickerPipeline(env, 'MANUAL_TG');
     return;
   }
 
-  // 3. 帮助指令
-  const helpMsg = `🤖 <b>#【量化投研机器人指令集】</b>\n\n` +
-    `• <code>/pick</code> 或 发送 <b>选股</b>：立即执行一次实时量化选股与大模型研判\n` +
-    `• <code>/quota</code> 或 发送 <b>算力</b>：实时查询今日免费算力剩余额度\n` +
-    `• <code>/help</code>：查看帮助指南\n\n` +
-    `🔗 <b>实时看板：</b> https://storka.luckycici.cc`;
-  await sendTelegramMessage(env, chatId, helpMsg);
+  // 3. 起始与帮助指令 (/start, /help) -> 呈现欢迎词与常驻快捷按钮
+  const welcomeMsg = `👋 <b>你好！欢迎使用 AI 量化交易投研机器人</b>\n\n` +
+    `你可以在底部直接点击快捷按钮，随时发起实时选股研判或查询算力余量。\n\n` +
+    `• 点击 <b>【⚡ 立即实时选股】</b>：即刻生成买入点、止损止盈参数卡片\n` +
+    `• 点击 <b>【🔋 查询剩余算力】</b>：查看今日免费 Neurons 余量\n` +
+    `• 点击 <b>【📈 打开 storkA 看板】</b>：直达在线实时推荐大盘\n` +
+    `• 点击 <b>【📊 打开 storkB 看板】</b>：查看全盘趋势与历史胜率`;
+
+  await sendTelegramMessageWithKeyboard(env, chatId, welcomeMsg);
 }
 
-// 发送 Telegram 消息辅助函数
+// 处理回调查询
+async function handleTelegramCallback(callbackQuery, env) {
+  const data = callbackQuery.data;
+  const chatId = String(callbackQuery.message?.chat?.id || '');
+  if (data === 'TRIGGER_PICK') {
+    await sendTelegramMessage(env, chatId, '⚡ 正在执行实时量化选股研判...');
+    await runStockPickerPipeline(env, 'MANUAL_TG');
+  } else if (data === 'CHECK_QUOTA') {
+    const quota = await getAIQuotaUsage(env);
+    await sendTelegramMessage(env, chatId, `🔋 <b>今日剩余算力：</b>${quota.remDisplay} / 10k Neurons (~余 ${quota.approxCallsRemaining}次)`);
+  }
+}
+
+// 发送带有底部常驻大键盘的 Telegram 消息
+async function sendTelegramMessageWithKeyboard(env, chatId, text) {
+  if (!env.TG_BOT_TOKEN) return;
+  const replyMarkup = {
+    keyboard: [
+      [{ text: "⚡ 立即实时选股" }, { text: "🔋 查询剩余算力" }],
+      [{ text: "📈 打开 storkA 看板" }, { text: "📊 打开 storkB 看板" }]
+    ],
+    resize_keyboard: true,
+    persistent: true
+  };
+
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup
+      })
+    });
+  } catch (e) {}
+}
+
+// 发送基础消息
 async function sendTelegramMessage(env, chatId, text) {
   if (!env.TG_BOT_TOKEN) return;
   try {
@@ -486,7 +525,7 @@ async function runStockPickerPipeline(env, mode = 'MORNING_BURST') {
   // 获取最新算力消耗信息以呈现在通知中
   const quota = await getAIQuotaUsage(env);
 
-  // 6. 格式化 Telegram 实时交易信号卡片
+  // 6. 格式化 Telegram 实时交易信号卡片（附带内嵌快捷直达按钮）
   const nowStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
   const tgMsg = `⚡ <b>#【${timeLabel}】</b> ⚡\n` +
     `🕒 <b>触发时间：</b>${nowStr}\n` +
@@ -502,6 +541,16 @@ async function runStockPickerPipeline(env, mode = 'MORNING_BURST') {
     ).join('\n\n') +
     `\n\n🧠 <b>AI 操盘手指令：</b>\n${cleanAnalysis.slice(0, 2500)}`;
 
+  // 消息卡片底部的 Inline 按钮
+  const inlineButtons = {
+    inline_keyboard: [
+      [
+        { text: "📈 打开 storkA 实时看板", url: "https://storka.luckycici.cc" },
+        { text: "📊 打开 storkB 胜率看板", url: "https://storkb.luckycici.cc" }
+      ]
+    ]
+  };
+
   let tgSent = false;
   if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
     try {
@@ -512,7 +561,8 @@ async function runStockPickerPipeline(env, mode = 'MORNING_BURST') {
         body: JSON.stringify({
           chat_id: env.TG_CHAT_ID,
           text: tgMsg,
-          parse_mode: 'HTML'
+          parse_mode: 'HTML',
+          reply_markup: inlineButtons
         })
       });
       tgSent = tgResp.ok;
