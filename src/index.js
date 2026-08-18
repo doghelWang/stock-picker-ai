@@ -422,7 +422,51 @@ async function handleTelegramCommand(message, env) {
   sendTelegramChatAction(env, chatId, 'typing').catch(() => {});
 
   try {
-    // 注入当前账户最新持仓与行情背景作为上下文
+    // 1. 智能提取用户提到的股票代码或常见股票名称，抓取实时行情注入上下文
+    let liveQuoteInfo = '';
+    const stockKeywords = [
+      { name: '生益科技', symbol: 'sh600183' },
+      { name: '中际旭创', symbol: 'sz300308' },
+      { name: '天孚通信', symbol: 'sz300394' },
+      { name: '新易盛', symbol: 'sz300502' },
+      { name: '蓝思科技', symbol: 'sz300433' },
+      { name: '拓荆科技', symbol: 'sh688072' },
+      { name: '兆易创新', symbol: 'sh603986' },
+      { name: '寒武纪', symbol: 'sh688256' },
+      { name: '澜起科技', symbol: 'sh688008' },
+      { name: '工业富联', symbol: 'sh601138' },
+      { name: '立讯精密', symbol: 'sz002475' }
+    ];
+
+    let targetSymbol = '';
+    const codeMatch = text.match(/\b([036]\d{5})\b/);
+    if (codeMatch) {
+      const code = codeMatch[1];
+      targetSymbol = code.startsWith('6') ? `sh${code}` : `sz${code}`;
+    } else {
+      for (const sk of stockKeywords) {
+        if (text.includes(sk.name)) {
+          targetSymbol = sk.symbol;
+          break;
+        }
+      }
+    }
+
+    if (targetSymbol) {
+      try {
+        const qResp = await fetch(`https://qt.gtimg.cn/q=s_${targetSymbol}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (qResp.ok) {
+          const qBuf = await qResp.arrayBuffer();
+          const qStr = new TextDecoder('gbk').decode(qBuf);
+          const parts = qStr.split('~');
+          if (parts.length >= 6) {
+            liveQuoteInfo = `\n【${parts[1]}(${parts[2]}) 最新实时行情】：现价 ¥${parts[3]}，今日涨跌幅 ${parts[5]}%，成交额 ${(parseFloat(parts[7]||0)/10000).toFixed(2)}亿元。`;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. 注入当前雪球实盘组合持仓
     let contextStr = '';
     try {
       const pResp = await fetch('https://stock-screener-hub.wangrunxi30.workers.dev/api/trade/portfolio');
@@ -433,16 +477,15 @@ async function handleTelegramCommand(message, env) {
       }
     } catch (e) {}
 
-    const chatPrompt = `你是用户的专属私人 AI 首席量化投研总监兼金融搭档（驱动底座：Google Gemini 旗舰大模型）。
-你的背景与上下文：
-- 负责管理与监控用户的 A 股量化系统 (storkA/storkB) 及雪球实盘模拟组合 ZH3664845。${contextStr}
+    const chatPrompt = `你是用户的私人专属 AI 首席量化投研总监兼金融搭档（驱动底座：Google Gemini 旗舰大模型）。
+背景与上下文信息：${liveQuoteInfo}${contextStr}
 - 你精通 A 股技术分析、Qlib 量价共振、Minervini 趋势模板、主力资金大单流向、基本面投研及宏观经济。
-- 回答风格：专业犀利、逻辑严谨、条理清晰、有深度；若是分析股票，请从量价结构、资金承接与风控点位等多角度作答；若是日常交流，友好亲切自然。
+- 回答风格：专业犀利、逻辑严谨、条理清晰、有深度；若是分析股票，请结合真实行情给出支撑位、压力位与量化操作建议；若是日常交流，友好自然。
 
 用户对你说的话：
 "${text}"
 
-请以第一人称直接作答：`;
+请以第一人称直接专业作答：`;
 
     const geminiReply = await generateAIAnalysis(chatPrompt, env);
     const cleanText = (geminiReply.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -479,11 +522,11 @@ async function sendTelegramChatAction(env, chatId, action = 'typing') {
   } catch (e) {}
 }
 
-// 发送带有 Inline 链接按钮的消息
+// 发送带有 Inline 链接按钮的消息 (防 HTML 解析失败自动降级)
 async function sendTelegramMessageWithInline(env, chatId, text, inlineMarkup) {
   if (!env.TG_BOT_TOKEN) return;
   try {
-    await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -493,10 +536,21 @@ async function sendTelegramMessageWithInline(env, chatId, text, inlineMarkup) {
         reply_markup: inlineMarkup
       })
     });
+    if (!res.ok) {
+      await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: text.replace(/<[^>]*>/g, ''),
+          reply_markup: inlineMarkup
+        })
+      });
+    }
   } catch (e) {}
 }
 
-// 发送带有底部常驻大键盘的 Telegram 消息
+// 发送带有底部常驻大键盘的 Telegram 消息 (防 HTML 解析失败自动降级)
 async function sendTelegramMessageWithKeyboard(env, chatId, text) {
   if (!env.TG_BOT_TOKEN) return;
   const replyMarkup = {
@@ -509,7 +563,7 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
   };
 
   try {
-    await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -519,18 +573,37 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
         reply_markup: replyMarkup
       })
     });
+    // 如果 Telegram HTML 解析失败（如特殊字符），自动降级为纯文本重发，保障 100% 送达！
+    if (!res.ok) {
+      await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: text.replace(/<[^>]*>/g, ''),
+          reply_markup: replyMarkup
+        })
+      });
+    }
   } catch (e) {}
 }
 
-// 发送基础消息
+// 发送基础消息 (防 HTML 解析失败自动降级)
 async function sendTelegramMessage(env, chatId, text) {
   if (!env.TG_BOT_TOKEN) return;
   try {
-    await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
     });
+    if (!res.ok) {
+      await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: text.replace(/<[^>]*>/g, '') })
+      });
+    }
   } catch (e) {}
 }
 
