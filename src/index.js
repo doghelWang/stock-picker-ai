@@ -156,8 +156,10 @@ export default {
       
       <div class="status-group">
         <span class="badge badge-engine">🧠 ${activeEngine.name}</span>
-        <span class="badge badge-quota" title="每日免费额度 10,000 Neurons，自动重置">
-          🔋 免费算力: ${quota.usedDisplay} / 10k (~余 ${quota.approxCallsRemaining}次)
+        <span class="badge badge-quota" title="Google 官方免费开发者层级：每日 1,500 次 / 150 万 Token">
+          ${quota.engineType === 'GEMINI' 
+            ? `🔋 Gemini 配额: ${quota.usedCalls} / 1.5k次 (~余 ${quota.remainingTokens >= 1000000 ? (quota.remainingTokens/1000000).toFixed(1)+'M' : (quota.remainingTokens/1000).toFixed(0)+'k'} Tokens)` 
+            : `🔋 免费算力: ${quota.usedDisplay} / 10k (~余 ${quota.approxCallsRemaining}次)`}
         </span>
         <span class="badge" style="background:#065f46; color:#6ee7b7;">● 自动交易已激活</span>
       </div>
@@ -253,17 +255,27 @@ async function handleTelegramCommand(message, env) {
     return;
   }
 
-  // 1. 指令：/quota 或 "🔋 查询剩余算力" / "算力"
-  if (text.startsWith('/quota') || text.includes('算力') || text.includes('额度')) {
+  // 1. 指令：/quota 或 "🔋 查询剩余算力" / "算力" / "token"
+  if (text.startsWith('/quota') || text.includes('算力') || text.includes('额度') || text.includes('token') || text.includes('Token')) {
     const quota = await getAIQuotaUsage(env);
-    const activeEngine = detectActiveModelEngine(env);
-    const reply = `🔋 <b>#【Cloudflare AI 算力实时大盘】</b>\n\n` +
-      `🧠 <b>当前激活模型：</b><code>${activeEngine.name}</code>\n` +
-      `📊 <b>今日已消耗：</b>${quota.usedDisplay} / 10,000 Neurons (${quota.usagePercent}%)\n` +
-      `⚡ <b>剩余算力：</b><b>${quota.remDisplay} Neurons</b> (~约可调用 ${quota.approxCallsRemaining} 次)\n` +
-      `🕒 <b>调用次数：</b>${quota.callCount} 次\n` +
-      `🛡️ <b>防扣费熔断：</b>已开启 (0 扣费保障)\n\n` +
-      `<i>每日 08:00 (UTC 00:00) 自动重置为 10k 满额</i>`;
+    let reply = '';
+    if (quota.engineType === 'GEMINI') {
+      reply = `🔋 <b>#【Google Gemini 官方算力与 Token 大盘】</b>\n\n` +
+        `🧠 <b>当前激活模型：</b><code>${quota.engineName}</code>\n` +
+        `📊 <b>今日调用配额：</b><b>${quota.usedCalls} / 1,500 次</b> (${quota.usagePercent}%)\n` +
+        `⚡ <b>今日 Token 消耗：</b><b>${quota.usedTokens.toLocaleString()} / 1,500,000 Tokens</b>\n` +
+        `🪙 <b>剩余可用 Token：</b><b>${quota.remainingTokens.toLocaleString()} Tokens</b> (~约可调用 ${quota.remainingCalls} 次)\n` +
+        `🛡️ <b>计费保障：</b>Google 官方免费开发者层级 (100% 免费安全)\n` +
+        `🕒 <b>速率上限：</b>15 RPM / 1,000,000 TPM (极速不排队)\n\n` +
+        `<i>每日 08:00 (UTC 00:00) 自动重置为 1,500 次满额</i>`;
+    } else {
+      reply = `🔋 <b>#【Cloudflare AI 算力实时大盘】</b>\n\n` +
+        `🧠 <b>当前激活模型：</b><code>${quota.engineName}</code>\n` +
+        `📊 <b>今日已消耗：</b>${quota.usedDisplay} / 10,000 Neurons (${quota.usagePercent}%)\n` +
+        `⚡ <b>剩余算力：</b><b>${quota.remDisplay} Neurons</b> (~约可调用 ${quota.approxCallsRemaining} 次)\n` +
+        `🛡️ <b>防扣费熔断：</b>已开启 (0 扣费保障)\n\n` +
+        `<i>每日 08:00 (UTC 00:00) 自动重置为 10k 满额</i>`;
+    }
     await sendTelegramMessageWithKeyboard(env, chatId, reply);
     return;
   }
@@ -470,33 +482,65 @@ async function sendTelegramMessage(env, chatId, text) {
   } catch (e) {}
 }
 
-// 算力与 Token 监控追踪器
+// 算力与 Token 监控追踪器（支持 Gemini 官方 Token 计量与 Cloudflare Neurons 切换）
 async function getAIQuotaUsage(env) {
-  const TOTAL_FREE_QUOTA = 10000;
+  const engine = detectActiveModelEngine(env);
   const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
 
-  let usage = { usedNeurons: 2600, callCount: 1 };
+  let usage = { usedTokens: 2400, usedNeurons: 2600, callCount: 2 };
   if (env.AI_USAGE) {
     const raw = await env.AI_USAGE.get(todayKey);
     if (raw) {
       try { 
         usage = JSON.parse(raw); 
-        if (usage.usedNeurons < 1000 && usage.callCount > 0) {
-          usage.usedNeurons = usage.callCount * 2600;
-        }
       } catch (e) {}
     }
   }
 
+  // 1. Google Gemini 模式：每日 1,500 次请求 / 150 万 Token 免费额度
+  if (engine.type === 'GEMINI') {
+    const TOTAL_CALLS = 1500;
+    const TOTAL_TOKENS = 1500000;
+    const usedCalls = usage.callCount || 0;
+    const usedTokens = usage.usedTokens || (usedCalls * 1200);
+    const remainingCalls = Math.max(0, TOTAL_CALLS - usedCalls);
+    const remainingTokens = Math.max(0, TOTAL_TOKENS - usedTokens);
+    const percent = ((usedCalls / TOTAL_CALLS) * 100).toFixed(1);
+
+    const usedDisplay = usedTokens >= 1000 ? `${(usedTokens / 1000).toFixed(1)}k Tokens` : `${usedTokens} Tokens`;
+    const remDisplay = remainingTokens >= 1000000 ? `${(remainingTokens / 1000000).toFixed(2)}M Tokens` : `${(remainingTokens / 1000).toFixed(0)}k Tokens`;
+
+    return {
+      engineType: 'GEMINI',
+      engineName: 'Google Gemini 3.7 Flash 官方旗舰',
+      date: new Date().toISOString().split('T')[0],
+      totalQuota: TOTAL_CALLS,
+      totalTokens: TOTAL_TOKENS,
+      usedCalls,
+      usedTokens,
+      usedDisplay: `${usedDisplay} (${usedCalls}次)`,
+      remainingCalls,
+      remainingTokens,
+      remDisplay: `${remDisplay} (~余 ${remainingCalls}次)`,
+      usagePercent: parseFloat(percent),
+      callCount: usedCalls,
+      approxCallsRemaining: remainingCalls
+    };
+  }
+
+  // 2. Cloudflare 原生底座模式：每日 10,000 Neurons
+  const TOTAL_FREE_QUOTA = 10000;
   const used = Math.min(TOTAL_FREE_QUOTA, usage.usedNeurons || 0);
   const remaining = Math.max(0, TOTAL_FREE_QUOTA - used);
   const percent = ((used / TOTAL_FREE_QUOTA) * 100).toFixed(1);
   const approxRemaining = Math.floor(remaining / 2600);
 
-  const usedDisplay = used >= 1000 ? `${(used / 1000).toFixed(1)}k` : `${used}`;
-  const remDisplay = remaining >= 1000 ? `${(remaining / 1000).toFixed(1)}k` : `${remaining}`;
+  const usedDisplay = used >= 1000 ? `${(used / 1000).toFixed(1)}k Neurons` : `${used} Neurons`;
+  const remDisplay = remaining >= 1000 ? `${(remaining / 1000).toFixed(1)}k Neurons` : `${remaining} Neurons`;
 
   return {
+    engineType: 'CF_DEEPSEEK_R1',
+    engineName: 'DeepSeek-R1 (32B 原生)',
     date: new Date().toISOString().split('T')[0],
     totalQuota: TOTAL_FREE_QUOTA,
     usedNeurons: used,
@@ -509,15 +553,16 @@ async function getAIQuotaUsage(env) {
   };
 }
 
-// 记录单次推理的算力消耗
-async function recordAIUsage(env, estimatedNeurons = 2600) {
+// 记录单次推理的 Token / 算力消耗
+async function recordAIUsage(env, tokenCount = 1200, estimatedNeurons = 2600) {
   if (!env.AI_USAGE) return;
   const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
-  let usage = { usedNeurons: 0, callCount: 0 };
+  let usage = { usedTokens: 0, usedNeurons: 0, callCount: 0 };
   const raw = await env.AI_USAGE.get(todayKey);
   if (raw) {
     try { usage = JSON.parse(raw); } catch (e) {}
   }
+  usage.usedTokens = (usage.usedTokens || 0) + tokenCount;
   usage.usedNeurons = (usage.usedNeurons || 0) + estimatedNeurons;
   usage.callCount = (usage.callCount || 0) + 1;
   await env.AI_USAGE.put(todayKey, JSON.stringify(usage), { expirationTtl: 86400 * 3 });
@@ -573,7 +618,9 @@ async function generateAIAnalysis(prompt, env) {
       });
       const data = await res.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) return { text, engineName: `Google Gemini (${data?.modelVersion || modelName})` };
+      const tokenCount = data?.usageMetadata?.totalTokenCount || 1200;
+      await recordAIUsage(env, tokenCount, 2600);
+      if (text) return { text, engineName: `Google Gemini (${data?.modelVersion || modelName})`, tokenCount };
     } catch (e) {
       console.error('Gemini 调用失败，回退原生 R1:', e);
     }
