@@ -2,6 +2,11 @@ name = "stock-picker-ai"
 main = "src/index.js"
 compatibility_date = "2024-04-01"
 
+routes = [
+  { pattern = "storka.luckycici.cc", custom_domain = true },
+  { pattern = "stocka.luckycici.cc", custom_domain = true }
+]
+
 [ai]
 binding = "AI"
 
