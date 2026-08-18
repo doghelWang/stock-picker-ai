@@ -557,19 +557,23 @@ function detectActiveModelEngine(env) {
 async function generateAIAnalysis(prompt, env) {
   const engine = detectActiveModelEngine(env);
 
-  // 1. Google Gemini 官方 API
+  // 1. Google Gemini 官方 API (Gemini 3.7 / 2.5)
   if (engine.type === 'GEMINI') {
     try {
-      const modelName = env.GEMINI_MODEL || 'gemini-2.0-flash';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${env.GEMINI_API_KEY.trim()}`;
+      const modelName = env.GEMINI_MODEL || 'gemini-flash-latest';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+      const apiKey = env.GEMINI_API_KEY.trim();
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': apiKey
+        },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
       });
       const data = await res.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) return { text, engineName: `Google Gemini (${modelName})` };
+      if (text) return { text, engineName: `Google Gemini (${data?.modelVersion || modelName})` };
     } catch (e) {
       console.error('Gemini 调用失败，回退原生 R1:', e);
     }
