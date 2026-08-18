@@ -331,25 +331,25 @@ async function handleTelegramCommand(message, env) {
   const authChatId = String(env.TG_CHAT_ID || '1099933423');
   const text = (message.text || '').trim();
 
-  // 严格权限鉴权：只有管理员本人才能触发
-  if (chatId !== authChatId) {
+  // 严格权限鉴权：允许当前管理员私聊
+  if (authChatId && chatId !== authChatId && chatId !== '1099933423') {
     await sendTelegramMessage(env, chatId, '⚠️ 抱歉，该量化投研机器人仅限管理员本人私有调用。');
     return;
   }
 
-  // 1. 指令：/quota 或 "🔋 查询剩余算力" / "算力" / "token"
-  if (text.startsWith('/quota') || text.includes('算力') || text.includes('额度') || text.includes('token') || text.includes('Token')) {
+  // 1. 指令：/quota 或精确点击 "🔋 查询剩余算力"
+  if (text === '/quota' || text === '🔋 查询剩余算力' || text === '算力' || text.toLowerCase() === 'token') {
     const quota = await getAIQuotaUsage(env);
     let reply = '';
     if (quota.engineType === 'GEMINI') {
       reply = `🔋 <b>#【Google Gemini 官方算力与 Token 大盘】</b>\n\n` +
         `🧠 <b>当前激活模型：</b><code>${quota.engineName}</code>\n` +
-        `📊 <b>今日调用配额：</b><b>${quota.usedCalls} / 1,500 次</b> (${quota.usagePercent}%)\n` +
-        `⚡ <b>今日 Token 消耗：</b><b>${quota.usedTokens.toLocaleString()} / 1,500,000 Tokens</b>\n` +
-        `🪙 <b>剩余可用 Token：</b><b>${quota.remainingTokens.toLocaleString()} Tokens</b> (~约可调用 ${quota.remainingCalls} 次)\n` +
-        `🛡️ <b>计费保障：</b>Google 官方免费开发者层级 (100% 免费安全)\n` +
-        `🕒 <b>速率上限：</b>15 RPM / 1,000,000 TPM (极速不排队)\n\n` +
-        `<i>每日 08:00 (UTC 00:00) 自动重置为 1,500 次满额</i>`;
+        `📊 <b>今日调用配额：</b><b>${quota.usedCalls} / 20 次</b> (${quota.usagePercent}%)\n` +
+        `⚡ <b>今日 Token 消耗：</b><b>${quota.usedTokens.toLocaleString()} / 250,000 Tokens</b>\n` +
+        `🪙 <b>剩余可用配额：</b><b>${quota.remainingCalls} 次</b> (${quota.remDisplay})\n` +
+        `🛡️ <b>多级降级保障：</b>3.7 ➔ 3.6 ➔ DeepSeek ➔ CF R1 (四重容灾)\n` +
+        `🕒 <b>速率上限：</b>5 RPM / 250,000 TPM (极速响应)\n\n` +
+        `<i>每日 08:00 (UTC 00:00) 自动刷新配额</i>`;
     } else {
       reply = `🔋 <b>#【Cloudflare AI 算力实时大盘】</b>\n\n` +
         `🧠 <b>当前激活模型：</b><code>${quota.engineName}</code>\n` +
@@ -362,22 +362,22 @@ async function handleTelegramCommand(message, env) {
     return;
   }
 
-  // 2. 指令：/pick 或 /run 或 "⚡ 立即实时选股" / "选股" / "分析"
-  if (text.startsWith('/pick') || text.startsWith('/run') || text.includes('选股') || text.includes('分析') || text.includes('触发')) {
-    await sendTelegramMessage(env, chatId, '⚡ <b>已接收选股指令！</b>\n正在抓取大盘活跃池并由 DeepSeek-R1 生成最新买卖点，请稍候约 10~20 秒...');
+  // 2. 指令：/pick 或精确点击 "⚡ 立即实时选股"
+  if (text === '/pick' || text === '/run' || text === '⚡ 立即实时选股') {
+    await sendTelegramMessage(env, chatId, '⚡ <b>已接收选股指令！</b>\n正在抓取全市场 5,000+ 标的并由 Gemini 生成最新买卖点，请稍候约 10 秒...');
     await runStockPickerPipeline(env, 'MANUAL_TG');
     return;
   }
 
-  // 3. 指令：/review 或 "复盘" / "1505" / "分析报告"
-  if (text.startsWith('/review') || text.includes('复盘') || text.includes('报告')) {
+  // 3. 指令：/review 或精确点击 "📊 15:05 全息复盘"
+  if (text === '/review' || text === '📊 15:05 全息复盘') {
     await sendTelegramMessage(env, chatId, '📊 <b>正在启动 15:05 全息复盘引擎...</b>\n正在核算 storkA/B 推荐标的走势、TeleBot 自动操作行为与雪球实盘收益，请稍候约 10 秒...');
     await runDailyPostMarketAttribution(env);
     return;
   }
 
-  // 3.5 指令：/sentiment 或 "舆情" / "快讯" / "情绪"
-  if (text.startsWith('/sentiment') || text.includes('舆情') || text.includes('快讯') || text.includes('消息面')) {
+  // 3.5 指令：/sentiment 或精确点击 "📰 实时舆情雷达"
+  if (text === '/sentiment' || text === '📰 实时舆情雷达') {
     sendTelegramChatAction(env, chatId, 'typing').catch(() => {});
     await sendTelegramMessage(env, chatId, '📡 正在抓取全市场最新 7×24 财经快讯并由 Gemini 3.7 进行 FinGPT 语义情绪评分...');
     
@@ -396,14 +396,15 @@ ${newsContext}
 
     const sentimentRes = await generateAIAnalysis(sentimentPrompt, env);
     const cleanSent = (sentimentRes.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    const formattedSent = formatMarkdownToTelegramHtml(cleanSent);
 
-    const replyMsg = `📰 <b>#【全市场 7×24 实时舆情情绪雷达 (FinGPT + Gemini 3.7)】</b>\n\n${cleanSent}`;
+    const replyMsg = `📰 <b>#【全市场 7×24 实时舆情情绪雷达 (FinGPT + Gemini 3.7)】</b>\n\n${formattedSent}`;
     await sendTelegramMessageWithKeyboard(env, chatId, replyMsg);
     return;
   }
 
-  // 5. 指令：/portfolio 或 "❄️ 查询雪球组合" / "持仓" / "账户"
-  if (text.startsWith('/portfolio') || text.includes('雪球') || text.includes('持仓') || text.includes('资产') || text.includes('组合')) {
+  // 5. 指令：/portfolio 或精确点击 "❄️ 查询雪球组合"
+  if (text === '/portfolio' || text === '❄️ 查询雪球组合') {
     try {
       const resp = await fetch('https://stock-screener-hub.wangrunxi30.workers.dev/api/trade/portfolio');
       const acc = await resp.json();
@@ -479,7 +480,7 @@ ${newsContext}
   }
 
   // 5. 指令：打开 storkA 看板
-  if (text.includes('storkA') || text.includes('实时看板') || text.includes('方案A')) {
+  if (text === 'storkA' || text === '📈 打开 storkA 看板') {
     const boardMsg = `📈 <b>#【storkA 实时AI量化投研看板】</b>\n\n` +
       `• <b>系统定位：</b>盘中三大黄金时段实时买卖点与大模型操盘指令\n` +
       `• <b>核心能力：</b>Qlib量价共振 + 确定性挂单买入区间 + 严格-3.8%止损\n\n` +
@@ -492,7 +493,7 @@ ${newsContext}
   }
 
   // 6. 指令：打开 storkB 看板
-  if (text.includes('storkB') || text.includes('胜率') || text.includes('方案B')) {
+  if (text === 'storkB' || text === '📊 打开 storkB 看板') {
     const boardMsg = `📊 <b>#【storkB 全市场量化与100万模拟炒股看板】</b>\n\n` +
       `• <b>系统定位：</b>100万模拟实盘全自动炒股 + 全市场 5000+ Minervini 趋势回测\n` +
       `• <b>核心能力：</b>全自动建仓/止盈止损 + 83.3% 历史胜率跟踪 + 错题归因日志\n\n` +
