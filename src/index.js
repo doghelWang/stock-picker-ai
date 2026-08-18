@@ -1,5 +1,5 @@
 export default {
-  // 1. 【全自动定时触发器】三大交易时段 + 15:05 每日全息复盘 + 周末当周大复盘
+  // 1. 【全自动定时触发器】结合 Gemini 1500 次每日配额的动态自适应频率调度算法
   async scheduled(event, env, ctx) {
     const now = new Date();
     const beijingDate = new Date(now.getTime() + 8 * 3600 * 1000);
@@ -7,26 +7,50 @@ export default {
     const bjHour = beijingDate.getUTCHours();
     const bjMin = beijingDate.getUTCMinutes();
 
-    // 15:05 ~ 15:10 触发归因分析与系统优化报告
+    // 1.1 动态算力配额熔断与保护：当今日调用超过 1,200 次时（剩余不足 300 次），自动降低非必要频率，保供用户 Telegram 对话
+    const quota = await getAIQuotaUsage(env);
+    if (quota.usedCalls >= 1200) {
+      console.log(`[算力熔断保护] 今日已调用 ${quota.usedCalls} 次，为保障 Telegram 自由对话，跳过定时巡检。`);
+      return;
+    }
+
+    // 1.2 收盘深度复盘时段 (15:05 ~ 15:10)
     if (bjHour === 15 && bjMin >= 3 && bjMin <= 12) {
       if (bjDay === 6 || bjDay === 0) {
-        // 周末触发：当周量化推荐与实盘执行深度大复盘报告
         ctx.waitUntil(runWeeklyAttributionReview(env));
       } else {
-        // 工作日 15:05 触发：当日推荐表现、TeleBot 操作行为与系统优化方向报告
         ctx.waitUntil(runDailyPostMarketAttribution(env));
       }
       return;
     }
 
-    // 黄金交易时段选股与自动买入
-    let mode = 'MORNING_BURST';
-    if (bjHour >= 13 && bjHour <= 14) {
-      mode = 'AFTERNOON_RALLY';
-    } else if (bjHour >= 15) {
-      mode = 'POST_MARKET';
+    // 1.3 黄金交易时段 (工作日 10:00 早盘起爆 & 14:00 午后反包)：全量量化+舆情双击建仓与推送
+    if (bjDay >= 1 && bjDay <= 5) {
+      if (bjHour === 10 && bjMin <= 5) {
+        ctx.waitUntil(runStockPickerPipeline(env, 'MORNING_BURST'));
+        return;
+      }
+      if (bjHour === 14 && bjMin <= 5) {
+        ctx.waitUntil(runStockPickerPipeline(env, 'AFTERNOON_RALLY'));
+        return;
+      }
     }
-    ctx.waitUntil(runStockPickerPipeline(env, mode));
+
+    // 1.4 盘中高频自适应嗅探 (工作日 09:30-11:30 / 13:00-15:00)：每 10 分钟静默巡检，突破催化阈值才唤醒 Gemini 推送
+    const isTradingHours = (bjDay >= 1 && bjDay <= 5) &&
+      ((bjHour === 9 && bjMin >= 30) || (bjHour === 10) || (bjHour === 11 && bjMin <= 30) ||
+       (bjHour >= 13 && bjHour < 15));
+
+    if (isTradingHours) {
+      ctx.waitUntil(runAdaptiveMarketSniffer(env));
+      return;
+    }
+
+    // 1.5 晚间核心舆情雷达 (20:00 / 22:00)：研判次日开盘题材催化
+    if (bjHour === 20 || bjHour === 22) {
+      ctx.waitUntil(runEveningSentimentDigest(env));
+      return;
+    }
   },
 
   // 2. HTTP 交互接口 & Telegram Webhook
@@ -683,6 +707,62 @@ ${stockContext}
       catalyst: '多头量价共振趋势爆发',
       resonanceType: '🔥 量化+舆情双击买点'
     }));
+  }
+}
+
+// 盘中高频舆情与异动嗅探器 (每10分钟静默巡检，突破关键催化阈值才唤醒 Gemini 推送)
+async function runAdaptiveMarketSniffer(env) {
+  try {
+    const newsList = await fetchLiveFinancialNews();
+    if (!newsList || newsList.length === 0) return;
+
+    // 筛选带有重大催化信号的新闻（如政策、突发、重组、涨价、订单突破等）
+    const criticalKeywords = ['重组', '增持', '涨价', '突破', '订单', '回购', '超预期', '降息', '降准', '大基金', '涨停', '入选', '立案', '减持'];
+    const urgentNews = newsList.filter(n => criticalKeywords.some(kw => n.content.includes(kw)));
+
+    if (urgentNews.length > 0) {
+      // 提取前 3 条最重磅的突发异动
+      const urgentDigest = urgentNews.slice(0, 3).map(n => `• [${n.time}] ${n.content}`).join('\n');
+      const prompt = `你是首席金融舆情监测官。当前盘中监测到以下突发异动快讯：\n${urgentDigest}\n\n请用不超过120字极速研判：1. 核心受益/受损A股板块；2. 资金情绪影响；3. 给出1~2只最相关的标的。格式紧凑精炼，杜绝废话。`;
+      
+      const aiRes = await generateAIAnalysis(prompt, env);
+      const cleanAI = (aiRes.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      const formattedAI = formatMarkdownToTelegramHtml(cleanAI);
+
+      const msg = `⚡ <b>【盘中突发重磅舆情异动速递】</b>\n\n` +
+        `📰 <b>监测快讯：</b>\n${urgentDigest}\n\n` +
+        `🧠 <b>Gemini 极速研判：</b>\n${formattedAI}`;
+      
+      if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
+        await sendTelegramMessage(env, env.TG_CHAT_ID, msg);
+      }
+    }
+  } catch (e) {
+    console.error('盘中嗅探失败:', e);
+  }
+}
+
+// 晚间舆情雷达 (20:00 / 22:00)：研判次日开盘题材催化
+async function runEveningSentimentDigest(env) {
+  try {
+    const newsList = await fetchLiveFinancialNews();
+    if (!newsList || newsList.length === 0) return;
+    const topNews = newsList.slice(0, 5).map((n, i) => `${i+1}. [${n.time}] ${n.content}`).join('\n');
+
+    const prompt = `你是首席宏观策略分析师。针对今晚最新的核心财经快讯：\n${topNews}\n\n请输出一段晚间复盘研判（不超过150字）：1. 明日早盘最具弹性的题材方向；2. 需要规避的风险点；3. 市场整体做多情绪评分(0-100)。`;
+    const aiRes = await generateAIAnalysis(prompt, env);
+    const cleanAI = (aiRes.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    const formattedAI = formatMarkdownToTelegramHtml(cleanAI);
+
+    const msg = `🌙 <b>【晚间核心舆情与明日策略雷达】</b>\n\n` +
+      `📰 <b>晚间重磅汇总：</b>\n${topNews}\n\n` +
+      `🧠 <b>Gemini 宏观推演：</b>\n${formattedAI}`;
+    
+    if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
+      await sendTelegramMessage(env, env.TG_CHAT_ID, msg);
+    }
+  } catch (e) {
+    console.error('晚间雷达失败:', e);
   }
 }
 
