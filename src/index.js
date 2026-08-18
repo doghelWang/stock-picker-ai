@@ -62,15 +62,14 @@ export default {
       try {
         const update = await request.json();
         if (update?.message) {
-          await handleTelegramCommand(update.message, env);
+          ctx.waitUntil(handleTelegramCommand(update.message, env));
         } else if (update?.callback_query) {
-          await handleTelegramCallback(update.callback_query, env);
+          ctx.waitUntil(handleTelegramCallback(update.callback_query, env));
         }
-        return new Response('OK');
       } catch (err) {
-        console.error('Webhook 处理异常:', err);
-        return new Response('OK'); // 始终返回 200 OK 避免 Telegram 重复重试
+        console.error('Webhook 解析异常:', err);
       }
+      return new Response('OK');
     }
 
     // 手动测试/触发 15:05 每日复盘分析与系统优化报告 API
@@ -1070,13 +1069,16 @@ async function generateAIAnalysis(prompt, env) {
   if (apiKey) {
     try {
       const primaryModel = env.GEMINI_MODEL || 'gemini-flash-latest';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${primaryModel}:generateContent`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${primaryModel}:generateContent?key=${apiKey}`;
+      const ctrl = new AbortController();
+      const tId = setTimeout(() => ctrl.abort(), 8000);
       const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-goog-api-key': apiKey
         },
+        signal: ctrl.signal,
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
@@ -1085,6 +1087,7 @@ async function generateAIAnalysis(prompt, env) {
           }
         })
       });
+      clearTimeout(tId);
 
       if (res.ok) {
         const data = await res.json();
@@ -1106,13 +1109,16 @@ async function generateAIAnalysis(prompt, env) {
     try {
       const fallbackModels = ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-2.5-pro'];
       for (const fModel of fallbackModels) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
+        const ctrl = new AbortController();
+        const tId = setTimeout(() => ctrl.abort(), 6000);
         const res = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-goog-api-key': apiKey
           },
+          signal: ctrl.signal,
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
@@ -1121,6 +1127,7 @@ async function generateAIAnalysis(prompt, env) {
             }
           })
         });
+        clearTimeout(tId);
 
         if (res.ok) {
           const data = await res.json();
