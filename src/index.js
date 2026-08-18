@@ -342,14 +342,18 @@ async function handleTelegramCommand(message, env) {
     const quota = await getAIQuotaUsage(env);
     let reply = '';
     if (quota.engineType === 'GEMINI') {
-      reply = `🔋 <b>#【Google Gemini 官方算力与 Token 大盘】</b>\n\n` +
-        `🧠 <b>当前激活模型：</b><code>${quota.engineName}</code>\n` +
-        `📊 <b>今日调用配额：</b><b>${quota.usedCalls} / 20 次</b> (${quota.usagePercent}%)\n` +
-        `⚡ <b>今日 Token 消耗：</b><b>${quota.usedTokens.toLocaleString()} / 250,000 Tokens</b>\n` +
-        `🪙 <b>剩余可用配额：</b><b>${quota.remainingCalls} 次</b> (${quota.remDisplay})\n` +
-        `🛡️ <b>多级降级保障：</b>3.7 ➔ 3.6 ➔ DeepSeek ➔ CF R1 (四重容灾)\n` +
-        `🕒 <b>速率上限：</b>5 RPM / 250,000 TPM (极速响应)\n\n` +
-        `<i>每日 08:00 (UTC 00:00) 自动刷新配额</i>`;
+      reply = `🔋 <b>#【Google Gemini 全生态五级阶梯算力大盘】</b>\n\n` +
+        `🧠 <b>当前激活引擎：</b><code>${quota.engineName}</code>\n` +
+        `📊 <b>今日调用进度：</b><b>${quota.usedCalls} / 1,060 次</b> (${quota.usagePercent}%)\n` +
+        `⚡ <b>今日 Token 消耗：</b><b>${quota.usedTokens.toLocaleString()} / 1,500,000 Tokens</b>\n` +
+        `🪙 <b>剩余可用配额：</b><b>${quota.remainingCalls} 次</b> (${quota.remDisplay})\n\n` +
+        `🛡️ <b>五级阶梯容灾矩阵：</b>\n` +
+        `• 🥇 <b>Gemini 3.7 Flash:</b> 20 RPD (主力旗舰)\n` +
+        `• 🥈 <b>Gemini 3.6 Flash:</b> 20 RPD (二级降级)\n` +
+        `• 🥉 <b>Gemini 3.0 Flash:</b> 20 RPD (三级降级)\n` +
+        `• 🔹 <b>Gemini 3.5 Flash Lite:</b> 500 RPD (四级海量)\n` +
+        `• 🟣 <b>Gemini 3.1 Flash Lite:</b> 500 RPD (五级兜底)\n\n` +
+        `<i>每日 08:00 (UTC 00:00) 自动刷新 1,060 次独立配额池</i>`;
     } else {
       reply = `🔋 <b>#【Cloudflare AI 算力实时大盘】</b>\n\n` +
         `🧠 <b>当前激活模型：</b><code>${quota.engineName}</code>\n` +
@@ -943,11 +947,11 @@ async function getAIQuotaUsage(env) {
   const isDowngraded = !!activeStatus?.isDowngraded;
   const tierLevel = activeStatus?.tierLevel || 1;
 
-  // 1. Google Gemini 模式：Free Tier 限制 20 次/天
+  // 1. Google Gemini 模式：五级阶梯总容量 1,060 次/天 (20 + 20 + 20 + 500 + 500)
   if (engine.type === 'GEMINI') {
-    const TOTAL_CALLS = 20;
-    const TOTAL_TOKENS = 250000;
-    const usedCalls = Math.min(TOTAL_CALLS, usage.callCount || 0);
+    const TOTAL_CALLS = 1060;
+    const TOTAL_TOKENS = 1500000;
+    const usedCalls = usage.callCount || 0;
     const usedTokens = usage.usedTokens || (usedCalls * 1200);
     const remainingCalls = Math.max(0, TOTAL_CALLS - usedCalls);
     const remainingTokens = Math.max(0, TOTAL_TOKENS - usedTokens);
@@ -966,18 +970,18 @@ async function getAIQuotaUsage(env) {
       totalTokens: TOTAL_TOKENS,
       usedCalls,
       usedTokens,
-      usedDisplay: `${usedCalls} / 20次 (${usedDisplay})`,
+      usedDisplay: `${usedCalls} / 1,060次 (${usedDisplay})`,
       remainingCalls,
       remainingTokens,
-      remDisplay: `余 ${remainingCalls}次 (${isDowngraded ? '降级中' : '正常'})`,
+      remDisplay: `余 ${remainingCalls}次 (${isDowngraded ? '已降级' : '正常'})`,
       usagePercent: parseFloat(percent),
       callCount: usedCalls,
       approxCallsRemaining: remainingCalls
     };
   }
 
-  // 2. Cloudflare 原生底座模式：每日 10,000 Neurons
-  const TOTAL_FREE_QUOTA = 10000;
+  // 2. 备用模式
+  const TOTAL_FREE_QUOTA = 1060;
   const used = Math.min(TOTAL_FREE_QUOTA, usage.usedNeurons || 0);
   const remaining = Math.max(0, TOTAL_FREE_QUOTA - used);
   const percent = ((used / TOTAL_FREE_QUOTA) * 100).toFixed(1);
@@ -1037,41 +1041,73 @@ function detectActiveModelEngine(env) {
     return {
       type: 'GEMINI',
       name: 'Google Gemini 3.7 Flash 官方旗舰',
-      description: '已自动切换至 Google 官方 Gemini 旗舰推理引擎。'
-    };
-  }
-  if (env.DEEPSEEK_API_KEY && env.DEEPSEEK_API_KEY.trim()) {
-    return {
-      type: 'DEEPSEEK_OFFICIAL',
-      name: 'DeepSeek 官方旗舰 API',
-      description: '已自动切换至 DeepSeek 官方满血云端大模型。'
-    };
-  }
-  if (env.OPENAI_API_KEY && env.OPENAI_API_KEY.trim()) {
-    return {
-      type: 'OPENAI',
-      name: 'OpenAI 官方旗舰 API',
-      description: '已自动切换至 OpenAI 官方旗舰大模型。'
+      description: '全链路 Google Gemini 五级阶梯容灾体系 (3.7 -> 3.6 -> 3 -> 3.5 Lite -> 3.1 Lite)。'
     };
   }
   return {
-    type: 'CF_DEEPSEEK_R1',
-    name: 'DeepSeek-R1 (32B 原生)',
-    description: '使用 Cloudflare 原生 DeepSeek-R1-32B 深度思维链推理（100% 免费白嫖）。'
+    type: 'GEMINI',
+    name: 'Google Gemini 官方引擎',
+    description: 'Google Gemini 官方量化推理引擎。'
   };
 }
 
-// 统一多模型四级阶梯分发与无感降级熔断器 (3.7 -> 3.6 -> DeepSeek -> CF R1)
+// 统一 Google Gemini 五级阶梯分发与无感降级熔断器 (3.7 -> 3.6 -> 3 -> 3.5 Lite -> 3.1 Lite)
 async function generateAIAnalysis(prompt, env) {
   const apiKey = env.GEMINI_API_KEY ? env.GEMINI_API_KEY.trim() : '';
+  if (!apiKey) {
+    return {
+      text: '【系统运行平稳】当前已基于经典量化多因子评分矩阵生成策略。',
+      engineName: '经典多因子规则引擎'
+    };
+  }
 
   // 🥇【第一梯队：Google Gemini 3.7 Flash 官方旗舰】(配额 20 RPD)
-  if (apiKey) {
-    try {
-      const primaryModel = env.GEMINI_MODEL || 'gemini-flash-latest';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${primaryModel}:generateContent?key=${apiKey}`;
+  try {
+    const primaryModel = env.GEMINI_MODEL || 'gemini-flash-latest';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${primaryModel}:generateContent?key=${apiKey}`;
+    const ctrl = new AbortController();
+    const tId = setTimeout(() => ctrl.abort(), 6000);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-goog-api-key': apiKey
+      },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 2500,
+          thinkingConfig: { thinkingBudget: 0 }
+        }
+      })
+    });
+    clearTimeout(tId);
+
+    if (res.ok) {
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) {
+        const tokenCount = data?.usageMetadata?.totalTokenCount || 1000;
+        await recordAIUsage(env, tokenCount, 2600);
+        await recordActiveModel(env, 'Google Gemini 3.7 Flash 官方旗舰', 1, primaryModel);
+        return { text, engineName: `Google Gemini 3.7 Flash (${data?.modelVersion || primaryModel})`, tokenCount };
+      }
+    } else {
+      console.warn(`[Gemini 3.7 配额告警] 响应状态 ${res.status}，自动降级至第二梯队 (Gemini 3.6)...`);
+    }
+  } catch (e) {
+    console.warn('[Gemini 3.7 异常]，自动降级至第二梯队 (Gemini 3.6):', e.message);
+  }
+
+  // 🥈【第二梯队：Google Gemini 3.6 Flash】(配额 20 RPD)
+  try {
+    const fallback36 = ['gemini-3.6-flash', 'gemini-2.5-flash'];
+    for (const fModel of fallback36) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
       const ctrl = new AbortController();
-      const tId = setTimeout(() => ctrl.abort(), 8000);
+      const tId = setTimeout(() => ctrl.abort(), 4000);
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -1084,9 +1120,7 @@ async function generateAIAnalysis(prompt, env) {
           generationConfig: {
             temperature: 0.7,
             maxOutputTokens: 2500,
-            thinkingConfig: {
-              thinkingBudget: 0
-            }
+            thinkingConfig: { thinkingBudget: 0 }
           }
         })
       });
@@ -1098,107 +1132,134 @@ async function generateAIAnalysis(prompt, env) {
         if (text) {
           const tokenCount = data?.usageMetadata?.totalTokenCount || 1000;
           await recordAIUsage(env, tokenCount, 2600);
-          await recordActiveModel(env, 'Google Gemini 3.7 Flash 官方旗舰', 1, primaryModel);
-          return { text, engineName: `Google Gemini 3.7 Flash (${data?.modelVersion || primaryModel})`, tokenCount };
-        }
-      } else {
-        console.warn(`[Gemini 3.7 配额告警] 响应状态 ${res.status}，自动降级至第二梯队 (Gemini 3.6)...`);
-      }
-    } catch (e) {
-      console.warn('[Gemini 3.7 异常]，自动降级至第二梯队 (Gemini 3.6):', e.message);
-    }
-
-    // 🥈【第二梯队：Google Gemini 3.6 Flash (旗舰级主力降级)】(独立 20 RPD 备用配额池)
-    try {
-      const fallbackModels = ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-2.5-pro'];
-      for (const fModel of fallbackModels) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
-        const ctrl = new AbortController();
-        const tId = setTimeout(() => ctrl.abort(), 4000);
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-goog-api-key': apiKey
-          },
-          signal: ctrl.signal,
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 2500,
-              thinkingConfig: {
-                thinkingBudget: 0
-              }
-            }
-          })
-        });
-        clearTimeout(tId);
-
-        if (res.ok) {
-          const data = await res.json();
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) {
-            const tokenCount = data?.usageMetadata?.totalTokenCount || 2000;
-            await recordAIUsage(env, tokenCount, 2600);
-            await recordActiveModel(env, 'Google Gemini 3.6 Flash (已降级备用)', 2, fModel);
-            return { text, engineName: `Google Gemini 3.6 Flash (降级备用: ${fModel})`, tokenCount };
-          }
+          await recordActiveModel(env, 'Google Gemini 3.6 Flash (二级降级)', 2, fModel);
+          return { text, engineName: `Google Gemini 3.6 Flash (${fModel})`, tokenCount };
         }
       }
-      console.warn('[Gemini 3.6 配额告警] 3.6 模型均超限，自动降级至第三梯队 (DeepSeek)...');
-    } catch (e) {
-      console.warn('[Gemini 3.6 降级异常]:', e.message);
     }
+    console.warn('[Gemini 3.6 配额告警] 自动降级至第三梯队 (Gemini 3 Flash)...');
+  } catch (e) {
+    console.warn('[Gemini 3.6 降级异常]:', e.message);
   }
 
-  // 🥉【第三梯队：DeepSeek 官方 API (deepseek-reasoner)】
-  if (env.DEEPSEEK_API_KEY && env.DEEPSEEK_API_KEY.trim()) {
-    try {
-      const modelName = env.DEEPSEEK_MODEL || 'deepseek-reasoner';
-      const res = await fetch('https://api.deepseek.com/chat/completions', {
+  // 🥉【第三梯队：Google Gemini 3 Flash】(配额 20 RPD)
+  try {
+    const fallback30 = ['gemini-3.0-flash', 'gemini-3-flash', 'gemini-2.0-flash'];
+    for (const fModel of fallback30) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
+      const ctrl = new AbortController();
+      const tId = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${env.DEEPSEEK_API_KEY.trim()}`
+          'X-goog-api-key': apiKey
         },
+        signal: ctrl.signal,
         body: JSON.stringify({
-          model: modelName,
-          messages: [
-            { role: 'system', content: '你是专业的实盘量化交易专家，指令明确专业。' },
-            { role: 'user', content: prompt }
-          ]
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 2500,
+            thinkingConfig: { thinkingBudget: 0 }
+          }
         })
       });
+      clearTimeout(tId);
+
       if (res.ok) {
         const data = await res.json();
-        const text = data?.choices?.[0]?.message?.content;
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) {
-          await recordActiveModel(env, 'DeepSeek 官方 API (三级降级)', 3, modelName);
-          return { text, engineName: `DeepSeek 官方 API (${modelName})` };
+          const tokenCount = data?.usageMetadata?.totalTokenCount || 1000;
+          await recordAIUsage(env, tokenCount, 2600);
+          await recordActiveModel(env, 'Google Gemini 3 Flash (三级降级)', 3, fModel);
+          return { text, engineName: `Google Gemini 3 Flash (${fModel})`, tokenCount };
         }
       }
-    } catch (e) {
-      console.error('DeepSeek 官方调用失败，回退原生 R1:', e);
     }
+    console.warn('[Gemini 3 Flash 配额告警] 自动降级至第四梯队 (Gemini 3.5 Flash Lite)...');
+  } catch (e) {
+    console.warn('[Gemini 3 Flash 降级异常]:', e.message);
   }
 
-  // 🛡️【第四梯队：Cloudflare 原生底座 DeepSeek-R1-32B (每日 10,000 Neurons 永久兜底)】
-  if (env.AI) {
-    try {
-      const aiRes = await env.AI.run('@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', {
-        messages: [
-          { role: 'system', content: '你是专业的实盘量化交易专家，指令明确专业。' },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 1000
+  // 🔹【第四梯队：Google Gemini 3.5 Flash Lite】(海量配额 500 RPD)
+  try {
+    const fallback35Lite = ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'gemini-flash-lite-latest'];
+    for (const fModel of fallback35Lite) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
+      const ctrl = new AbortController();
+      const tId = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': apiKey
+        },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 2500
+          }
+        })
       });
-      const text = aiRes?.response || '';
-      await recordActiveModel(env, 'DeepSeek-R1-32B (四级原生兜底)', 4, 'cf-r1');
-      return { text, engineName: 'DeepSeek-R1 (32B 原生兜底)' };
-    } catch (e) {
-      console.error('CF 原生 R1 异常:', e);
+      clearTimeout(tId);
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          const tokenCount = data?.usageMetadata?.totalTokenCount || 800;
+          await recordAIUsage(env, tokenCount, 2600);
+          await recordActiveModel(env, 'Google Gemini 3.5 Flash Lite (四级降级)', 4, fModel);
+          return { text, engineName: `Google Gemini 3.5 Flash Lite (${fModel})`, tokenCount };
+        }
+      }
     }
+    console.warn('[Gemini 3.5 Flash Lite 配额告警] 自动降级至第五梯队 (Gemini 3.1 Flash Lite)...');
+  } catch (e) {
+    console.warn('[Gemini 3.5 Flash Lite 降级异常]:', e.message);
+  }
+
+  // 🟣【第五梯队：Google Gemini 3.1 Flash Lite 终极海量兜底】(海量配额 500 RPD)
+  try {
+    const fallback31Lite = ['gemini-3.1-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-8b', 'gemini-1.5-flash'];
+    for (const fModel of fallback31Lite) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
+      const ctrl = new AbortController();
+      const tId = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': apiKey
+        },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 2000
+          }
+        })
+      });
+      clearTimeout(tId);
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          const tokenCount = data?.usageMetadata?.totalTokenCount || 800;
+          await recordAIUsage(env, tokenCount, 2600);
+          await recordActiveModel(env, 'Google Gemini 3.1 Flash Lite (五级终极兜底)', 5, fModel);
+          return { text, engineName: `Google Gemini 3.1 Flash Lite (${fModel})`, tokenCount };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Gemini 3.1 Flash Lite 异常]:', e.message);
   }
 
   return {
