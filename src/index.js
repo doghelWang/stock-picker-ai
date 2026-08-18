@@ -1032,9 +1032,9 @@ async function generateAIAnalysis(prompt, env) {
       console.warn('[Gemini 3.7 异常]，自动降级至第二梯队 (Gemini 3.6):', e.message);
     }
 
-    // 🥈【第二梯队：Google Gemini 3.6 / 2.0 Flash】(独立 20 RPD 备用配额池)
+    // 🥈【第二梯队：Google Gemini 3.6 Flash (旗舰级主力降级)】(独立 20 RPD 备用配额池)
     try {
-      const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+      const fallbackModels = ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-2.5-pro'];
       for (const fModel of fallbackModels) {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent`;
         const res = await fetch(url, {
@@ -1062,7 +1062,7 @@ async function generateAIAnalysis(prompt, env) {
           }
         }
       }
-      console.warn('[Gemini 3.6 配额告警] 备用模型均超限，自动降级至第三梯队 (DeepSeek)...');
+      console.warn('[Gemini 3.6 配额告警] 3.6 模型均超限，自动降级至第三梯队 (DeepSeek)...');
     } catch (e) {
       console.warn('[Gemini 3.6 降级异常]:', e.message);
     }
