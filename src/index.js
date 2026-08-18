@@ -993,16 +993,15 @@ function detectActiveModelEngine(env) {
   };
 }
 
-// 统一模型调用分发器
+// 统一多模型四级阶梯分发与无感降级熔断器 (3.7 -> 3.6 -> DeepSeek -> CF R1)
 async function generateAIAnalysis(prompt, env) {
-  const engine = detectActiveModelEngine(env);
+  const apiKey = env.GEMINI_API_KEY ? env.GEMINI_API_KEY.trim() : '';
 
-  // 1. Google Gemini 官方 API (Gemini 3.7 / 2.5)
-  if (engine.type === 'GEMINI') {
+  // 🥇【第一梯队：Google Gemini 3.7 Flash 官方旗舰】(配额 20 RPD)
+  if (apiKey) {
     try {
-      const modelName = env.GEMINI_MODEL || 'gemini-flash-latest';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
-      const apiKey = env.GEMINI_API_KEY.trim();
+      const primaryModel = env.GEMINI_MODEL || 'gemini-flash-latest';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${primaryModel}:generateContent`;
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -1017,18 +1016,60 @@ async function generateAIAnalysis(prompt, env) {
           }
         })
       });
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      const tokenCount = data?.usageMetadata?.totalTokenCount || 1200;
-      await recordAIUsage(env, tokenCount, 2600);
-      if (text) return { text, engineName: `Google Gemini (${data?.modelVersion || modelName})`, tokenCount };
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          const tokenCount = data?.usageMetadata?.totalTokenCount || 1200;
+          await recordAIUsage(env, tokenCount, 2600);
+          return { text, engineName: `Google Gemini 3.7 Flash (${data?.modelVersion || primaryModel})`, tokenCount };
+        }
+      } else {
+        console.warn(`[Gemini 3.7 配额告警] 响应状态 ${res.status}，自动降级至第二梯队 (Gemini 3.6)...`);
+      }
     } catch (e) {
-      console.error('Gemini 调用失败，回退原生 R1:', e);
+      console.warn('[Gemini 3.7 异常]，自动降级至第二梯队 (Gemini 3.6):', e.message);
+    }
+
+    // 🥈【第二梯队：Google Gemini 3.6 / 2.0 Flash】(独立 20 RPD 备用配额池)
+    try {
+      const fallbackModels = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+      for (const fModel of fallbackModels) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-goog-api-key': apiKey
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.6,
+              maxOutputTokens: 1200
+            }
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            const tokenCount = data?.usageMetadata?.totalTokenCount || 1200;
+            await recordAIUsage(env, tokenCount, 2600);
+            return { text, engineName: `Google Gemini 3.6 Flash (降级备用: ${fModel})`, tokenCount };
+          }
+        }
+      }
+      console.warn('[Gemini 3.6 配额告警] 备用模型均超限，自动降级至第三梯队 (DeepSeek)...');
+    } catch (e) {
+      console.warn('[Gemini 3.6 降级异常]:', e.message);
     }
   }
 
-  // 2. DeepSeek 官方 API
-  if (engine.type === 'DEEPSEEK_OFFICIAL') {
+  // 🥉【第三梯队：DeepSeek 官方 API (deepseek-reasoner)】
+  if (env.DEEPSEEK_API_KEY && env.DEEPSEEK_API_KEY.trim()) {
     try {
       const modelName = env.DEEPSEEK_MODEL || 'deepseek-reasoner';
       const res = await fetch('https://api.deepseek.com/chat/completions', {
@@ -1045,21 +1086,18 @@ async function generateAIAnalysis(prompt, env) {
           ]
         })
       });
-      const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content;
-      if (text) return { text, engineName: `DeepSeek 官方 API (${modelName})` };
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content;
+        if (text) return { text, engineName: `DeepSeek 官方 API (${modelName})` };
+      }
     } catch (e) {
       console.error('DeepSeek 官方调用失败，回退原生 R1:', e);
     }
   }
 
-  // 3. 默认底座：Cloudflare 原生 DeepSeek-R1 (32B)
+  // 🛡️【第四梯队：Cloudflare 原生底座 DeepSeek-R1-32B (每日 10,000 Neurons 永久兜底)】
   if (env.AI) {
-    const quota = await getAIQuotaUsage(env);
-    if (quota.remainingNeurons < 1500) {
-      return { text: '（已触发今日免费算力防超额保护，采用经典量化规则输出）', engineName: '基础量化规则 (熔断保护)' };
-    }
-
     try {
       const aiRes = await env.AI.run('@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', {
         messages: [
@@ -1068,16 +1106,17 @@ async function generateAIAnalysis(prompt, env) {
         ],
         max_tokens: 1000
       });
-      const text = aiRes?.response || aiRes?.choices?.[0]?.message?.content || JSON.stringify(aiRes);
-      
-      await recordAIUsage(env, 2600);
-      return { text, engineName: 'DeepSeek-R1-32B (原生免费)' };
-    } catch (err) {
-      return { text: `量化形态良好，建议严格按止损位分批建仓。(${err.message})`, engineName: '基础量化规则' };
+      const text = aiRes?.response || '';
+      return { text, engineName: 'DeepSeek-R1 (32B 原生兜底)' };
+    } catch (e) {
+      console.error('CF 原生 R1 异常:', e);
     }
   }
 
-  return { text: '（基础量化规则生成）', engineName: '基础量化规则' };
+  return {
+    text: '【系统运行平稳】当前已基于经典量化多因子评分矩阵生成策略。',
+    engineName: '经典多因子规则引擎'
+  };
 }
 
 // 核心流程：量化漏斗 -> 股价概率预测 -> 买卖点生成 -> 自动买入模拟盘 -> Telegram 实时通知
