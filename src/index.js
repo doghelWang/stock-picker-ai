@@ -152,7 +152,9 @@ export default {
     .status-group { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.7rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; background: #0f172a; border: 1px solid var(--border); color: #cbd5e1; }
     .badge-quota { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
-    .badge-engine { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
+    .badge-engine { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399; transition: all 0.3s; }
+    .badge-downgrade { background: rgba(251, 191, 36, 0.15) !important; border-color: rgba(251, 191, 36, 0.5) !important; color: #fbbf24 !important; }
+    .badge-deepseek { background: rgba(192, 132, 252, 0.15) !important; border-color: rgba(192, 132, 252, 0.5) !important; color: #c084fc !important; }
     
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
     
@@ -179,10 +181,10 @@ export default {
       </div>
       
       <div class="status-group">
-        <span class="badge badge-engine">🧠 ${activeEngine.name}</span>
-        <span class="badge badge-quota" title="Google 官方免费开发者层级：每日 1,500 次 / 150 万 Token">
+        <span id="model-badge" class="badge badge-engine ${quota.isDowngraded ? (quota.tierLevel === 2 ? 'badge-downgrade' : 'badge-deepseek') : ''}">🧠 ${quota.engineName}</span>
+        <span id="quota-badge" class="badge badge-quota" title="Google 官方免费开发者层级配额大盘">
           ${quota.engineType === 'GEMINI' 
-            ? `🔋 Gemini 配额: ${quota.usedCalls} / 1.5k次 (~余 ${quota.remainingTokens >= 1000000 ? (quota.remainingTokens/1000000).toFixed(1)+'M' : (quota.remainingTokens/1000).toFixed(0)+'k'} Tokens)` 
+            ? `🔋 Gemini 配额: ${quota.usedCalls} / 20次 (余 ${quota.remainingCalls}次)` 
             : `🔋 免费算力: ${quota.usedDisplay} / 10k (~余 ${quota.approxCallsRemaining}次)`}
         </span>
         <span class="badge" style="background:#065f46; color:#6ee7b7;">● 自动交易已激活</span>
@@ -191,13 +193,14 @@ export default {
 
     <div class="schedule-bar">
       <div>
-        <span>⏰ <b>每日三大自动触发时段：</b></span>
+        <span>⏰ <b>每日四大自动触发时段：</b></span>
         <span class="schedule-item">10:00 (早盘起爆)</span> |
         <span class="schedule-item">14:00 (午后反包)</span> |
-        <span class="schedule-item">15:30 (盘后总复盘)</span>
+        <span class="schedule-item">15:05 (每日归因复盘)</span> |
+        <span class="schedule-item">20:00/22:00 (夜盘雷达)</span>
       </div>
       <div style="color:#38bdf8; font-size:0.82rem;">
-        🤖 Telegram 模拟实盘交易指令已就绪
+        🤖 Telegram 实时对话与动态降级已就绪
       </div>
     </div>
 
@@ -253,7 +256,7 @@ export default {
           📰 全市场 7×24 实时舆情监测与量化双击共振雷达 <span style="font-size:0.75rem; background:rgba(56,189,248,0.2); padding:0.2rem 0.5rem; border-radius:4px;">FinGPT 架构</span>
         </h2>
         <p style="color:var(--muted); font-size:0.88rem; margin-bottom:1rem;">
-          实时汇聚全市场 7×24 财经突发快讯与主力异动，由 Google Gemini 3.7 进行金融实体链接与利好利空极性打分，只有量化突破与舆情强催化同时成立时触发“双击买点”。
+          实时汇聚全市场 7×24 财经突发快讯与主力异动，由当前激活模型进行金融实体链接与利好利空极性打分，只有量化突破与舆情强催化同时成立时触发“双击买点”。
         </p>
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:1rem;">
           <div style="background:rgba(15,23,42,0.6); padding:1rem; border-radius:8px; border:1px solid var(--border);">
@@ -284,6 +287,35 @@ export default {
       </div>
     </div>
   </div>
+
+  <!-- 🌟 客户端实时无刷感知当前模型与降级状态 -->
+  <script>
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/quota');
+        if (res.ok) {
+          const data = await res.json();
+          const badge = document.getElementById('model-badge');
+          if (badge && data.engineName) {
+            badge.innerHTML = '🧠 ' + data.engineName;
+            if (data.isDowngraded) {
+              if (data.tierLevel === 2) {
+                badge.className = 'badge badge-engine badge-downgrade';
+              } else {
+                badge.className = 'badge badge-engine badge-deepseek';
+              }
+            } else {
+              badge.className = 'badge badge-engine';
+            }
+          }
+          const qbadge = document.getElementById('quota-badge');
+          if (qbadge && data.remDisplay) {
+            qbadge.innerHTML = '🔋 ' + data.remDisplay;
+          }
+        }
+      } catch (e) {}
+    }, 6000);
+  </script>
 </body>
 </html>`;
 
@@ -877,7 +909,7 @@ async function sendTelegramMessage(env, chatId, text) {
   } catch (e) {}
 }
 
-// 算力与 Token 监控追踪器（支持 Gemini 官方 Token 计量与 Cloudflare Neurons 切换）
+// 算力与 Token 监控追踪器（支持 Gemini 官方 Token 计量与多级降级状态）
 async function getAIQuotaUsage(env) {
   const engine = detectActiveModelEngine(env);
   const todayKey = 'usage_' + new Date().toISOString().split('T')[0];
@@ -892,31 +924,46 @@ async function getAIQuotaUsage(env) {
     }
   }
 
-  // 1. Google Gemini 模式：每日 1,500 次请求 / 150 万 Token 免费额度
+  // 读取最近一次真实生效的模型状态与降级层级
+  let activeStatus = null;
+  if (env.AI_USAGE) {
+    const rawStatus = await env.AI_USAGE.get('active_model_status');
+    if (rawStatus) {
+      try { activeStatus = JSON.parse(rawStatus); } catch (e) {}
+    }
+  }
+
+  const currentEngineName = activeStatus?.engineName || (engine.type === 'GEMINI' ? 'Google Gemini 3.7 Flash 官方旗舰' : engine.name);
+  const isDowngraded = !!activeStatus?.isDowngraded;
+  const tierLevel = activeStatus?.tierLevel || 1;
+
+  // 1. Google Gemini 模式：Free Tier 限制 20 次/天
   if (engine.type === 'GEMINI') {
-    const TOTAL_CALLS = 1500;
-    const TOTAL_TOKENS = 1500000;
-    const usedCalls = usage.callCount || 0;
+    const TOTAL_CALLS = 20;
+    const TOTAL_TOKENS = 250000;
+    const usedCalls = Math.min(TOTAL_CALLS, usage.callCount || 0);
     const usedTokens = usage.usedTokens || (usedCalls * 1200);
     const remainingCalls = Math.max(0, TOTAL_CALLS - usedCalls);
     const remainingTokens = Math.max(0, TOTAL_TOKENS - usedTokens);
     const percent = ((usedCalls / TOTAL_CALLS) * 100).toFixed(1);
 
     const usedDisplay = usedTokens >= 1000 ? `${(usedTokens / 1000).toFixed(1)}k Tokens` : `${usedTokens} Tokens`;
-    const remDisplay = remainingTokens >= 1000000 ? `${(remainingTokens / 1000000).toFixed(2)}M Tokens` : `${(remainingTokens / 1000).toFixed(0)}k Tokens`;
+    const remDisplay = `${remainingCalls}次 (~余 ${(remainingTokens / 1000).toFixed(0)}k Tokens)`;
 
     return {
       engineType: 'GEMINI',
-      engineName: 'Google Gemini 3.7 Flash 官方旗舰',
+      engineName: currentEngineName,
+      tierLevel,
+      isDowngraded,
       date: new Date().toISOString().split('T')[0],
       totalQuota: TOTAL_CALLS,
       totalTokens: TOTAL_TOKENS,
       usedCalls,
       usedTokens,
-      usedDisplay: `${usedDisplay} (${usedCalls}次)`,
+      usedDisplay: `${usedCalls} / 20次 (${usedDisplay})`,
       remainingCalls,
       remainingTokens,
-      remDisplay: `${remDisplay} (~余 ${remainingCalls}次)`,
+      remDisplay: `余 ${remainingCalls}次 (${isDowngraded ? '降级中' : '正常'})`,
       usagePercent: parseFloat(percent),
       callCount: usedCalls,
       approxCallsRemaining: remainingCalls
@@ -935,7 +982,9 @@ async function getAIQuotaUsage(env) {
 
   return {
     engineType: 'CF_DEEPSEEK_R1',
-    engineName: 'DeepSeek-R1 (32B 原生)',
+    engineName: currentEngineName,
+    tierLevel,
+    isDowngraded,
     date: new Date().toISOString().split('T')[0],
     totalQuota: TOTAL_FREE_QUOTA,
     usedNeurons: used,
@@ -963,12 +1012,25 @@ async function recordAIUsage(env, tokenCount = 1200, estimatedNeurons = 2600) {
   await env.AI_USAGE.put(todayKey, JSON.stringify(usage), { expirationTtl: 86400 * 3 });
 }
 
+// 记录当前实际响应的模型状态（用于前端看板实时感知降级状态）
+async function recordActiveModel(env, engineName, tierLevel = 1, modelCode = '') {
+  if (!env.AI_USAGE) return;
+  const statusObj = {
+    engineName,
+    tierLevel, // 1: 3.7 Flash, 2: 3.6 Flash, 3: DeepSeek, 4: CF R1
+    isDowngraded: tierLevel > 1,
+    modelCode,
+    updatedAt: new Date().toISOString()
+  };
+  await env.AI_USAGE.put('active_model_status', JSON.stringify(statusObj), { expirationTtl: 86400 * 3 });
+}
+
 // 检测当前激活的模型引擎
 function detectActiveModelEngine(env) {
   if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim()) {
     return {
       type: 'GEMINI',
-      name: 'Google Gemini 官方旗舰',
+      name: 'Google Gemini 3.7 Flash 官方旗舰',
       description: '已自动切换至 Google 官方 Gemini 旗舰推理引擎。'
     };
   }
@@ -1023,6 +1085,7 @@ async function generateAIAnalysis(prompt, env) {
         if (text) {
           const tokenCount = data?.usageMetadata?.totalTokenCount || 1200;
           await recordAIUsage(env, tokenCount, 2600);
+          await recordActiveModel(env, 'Google Gemini 3.7 Flash 官方旗舰', 1, primaryModel);
           return { text, engineName: `Google Gemini 3.7 Flash (${data?.modelVersion || primaryModel})`, tokenCount };
         }
       } else {
@@ -1058,6 +1121,7 @@ async function generateAIAnalysis(prompt, env) {
           if (text) {
             const tokenCount = data?.usageMetadata?.totalTokenCount || 1200;
             await recordAIUsage(env, tokenCount, 2600);
+            await recordActiveModel(env, 'Google Gemini 3.6 Flash (已降级备用)', 2, fModel);
             return { text, engineName: `Google Gemini 3.6 Flash (降级备用: ${fModel})`, tokenCount };
           }
         }
@@ -1089,7 +1153,10 @@ async function generateAIAnalysis(prompt, env) {
       if (res.ok) {
         const data = await res.json();
         const text = data?.choices?.[0]?.message?.content;
-        if (text) return { text, engineName: `DeepSeek 官方 API (${modelName})` };
+        if (text) {
+          await recordActiveModel(env, 'DeepSeek 官方 API (三级降级)', 3, modelName);
+          return { text, engineName: `DeepSeek 官方 API (${modelName})` };
+        }
       }
     } catch (e) {
       console.error('DeepSeek 官方调用失败，回退原生 R1:', e);
@@ -1107,6 +1174,7 @@ async function generateAIAnalysis(prompt, env) {
         max_tokens: 1000
       });
       const text = aiRes?.response || '';
+      await recordActiveModel(env, 'DeepSeek-R1-32B (四级原生兜底)', 4, 'cf-r1');
       return { text, engineName: 'DeepSeek-R1 (32B 原生兜底)' };
     } catch (e) {
       console.error('CF 原生 R1 异常:', e);
