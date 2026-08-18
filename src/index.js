@@ -404,14 +404,54 @@ async function handleTelegramCommand(message, env) {
   }
 
   // 7. 起始与帮助指令 (/start, /help) -> 呈现欢迎词与常驻快捷按钮
-  const welcomeMsg = `👋 <b>你好！欢迎使用 AI 量化交易与自动模拟炒股机器人</b>\n\n` +
-    `你可以在底部直接点击快捷按钮，随时发起实时选股研判、查询持仓净值或查看算力。\n\n` +
-    `• 点击 <b>【⚡ 立即实时选股】</b>：即刻生成买入点并自动执行建仓\n` +
-    `• 点击 <b>【💼 查询模拟持仓】</b>：查看 100 万模拟账户当前持仓与浮动盈亏\n` +
-    `• 点击 <b>【🔋 查询剩余算力】</b>：查看今日免费 Neurons 余量\n` +
-    `• 点击 <b>【📊 打开 storkB 看板】</b>：查看全盘趋势与历史交割单`;
+  if (text.startsWith('/start') || text.startsWith('/help')) {
+    const welcomeMsg = `👋 <b>你好！欢迎使用 AI 量化交易与自动模拟炒股机器人</b>\n\n` +
+      `🧠 <b>当前大脑：</b><code>Google Gemini 3.7 Flash 官方旗舰</code>\n` +
+      `❄️ <b>绑定实盘：</b>雪球组合 <code>ZH3664845</code> (天啦噜去的组合)\n\n` +
+      `💡 <b>你可以直接与我任意交谈：</b>\n` +
+      `• 问股票逻辑（例如：<i>“帮我分析下中际旭创明天的走势”</i>）\n` +
+      `• 问大盘与行业（例如：<i>“光模块和半导体接下来哪个更有空间？”</i>）\n` +
+      `• 问任何金融、量化、编程或日常问题，<b>Google Gemini</b> 都会实时为你解答！\n\n` +
+      `也可以直接点击下方快捷大按钮进行一键操作：`;
+    await sendTelegramMessageWithKeyboard(env, chatId, welcomeMsg);
+    return;
+  }
 
-  await sendTelegramMessageWithKeyboard(env, chatId, welcomeMsg);
+  // 8. 🌟【与 Google Gemini 自由对话中枢】将用户的任意文本转发给 Gemini 进行智能交互作答
+  // 提示 Telegram 客户端 "正在输入中..."
+  sendTelegramChatAction(env, chatId, 'typing').catch(() => {});
+
+  try {
+    // 注入当前账户最新持仓与行情背景作为上下文
+    let contextStr = '';
+    try {
+      const pResp = await fetch('https://stock-screener-hub.wangrunxi30.workers.dev/api/trade/portfolio');
+      if (pResp.ok) {
+        const acc = await pResp.json();
+        const holdings = (acc.positions || []).map(p => `${p.name}(${p.code}, 成本:¥${p.costPrice}, 现价:¥${p.currentPrice}, 浮盈:${p.pnlPercent}%)`).join('、');
+        contextStr = `\n【当前雪球实盘组合 ZH3664845 持仓】：总资产 ¥${acc.totalAsset.toLocaleString('zh-CN', {minimumFractionDigits:2})}，持仓：${holdings || '空仓'}。`;
+      }
+    } catch (e) {}
+
+    const chatPrompt = `你是用户的专属私人 AI 首席量化投研总监兼金融搭档（驱动底座：Google Gemini 旗舰大模型）。
+你的背景与上下文：
+- 负责管理与监控用户的 A 股量化系统 (storkA/storkB) 及雪球实盘模拟组合 ZH3664845。${contextStr}
+- 你精通 A 股技术分析、Qlib 量价共振、Minervini 趋势模板、主力资金大单流向、基本面投研及宏观经济。
+- 回答风格：专业犀利、逻辑严谨、条理清晰、有深度；若是分析股票，请从量价结构、资金承接与风控点位等多角度作答；若是日常交流，友好亲切自然。
+
+用户对你说的话：
+"${text}"
+
+请以第一人称直接作答：`;
+
+    const geminiReply = await generateAIAnalysis(chatPrompt, env);
+    const cleanText = (geminiReply.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+    const replyMsg = `🧠 <b>[Gemini 投研助理]</b>\n\n${cleanText}`;
+    await sendTelegramMessageWithKeyboard(env, chatId, replyMsg);
+  } catch (err) {
+    await sendTelegramMessage(env, chatId, `⚠️ 调用 Gemini 对话时发生异常: ${err.message}`);
+  }
 }
 
 // 处理回调查询
@@ -425,6 +465,18 @@ async function handleTelegramCallback(callbackQuery, env) {
     const quota = await getAIQuotaUsage(env);
     await sendTelegramMessage(env, chatId, `🔋 <b>今日剩余算力：</b>${quota.remDisplay} / 10k Neurons (~余 ${quota.approxCallsRemaining}次)`);
   }
+}
+
+// 发送状态指示（如正在输入 typing）
+async function sendTelegramChatAction(env, chatId, action = 'typing') {
+  if (!env.TG_BOT_TOKEN) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendChatAction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, action })
+    });
+  } catch (e) {}
 }
 
 // 发送带有 Inline 链接按钮的消息
