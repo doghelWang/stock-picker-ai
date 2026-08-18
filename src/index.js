@@ -454,7 +454,7 @@ ${newsContext}
       `🧠 <b>当前大脑：</b><code>Google Gemini 3.7 Flash 官方旗舰</code>\n` +
       `❄️ <b>绑定实盘：</b>雪球组合 <code>ZH3664845</code> (天啦噜去的组合)\n\n` +
       `💡 <b>你可以直接与我任意交谈：</b>\n` +
-      `• 问股票逻辑（例如：<i>“帮我分析下中际旭创明天的走势”</i>）\n` +
+      `• 问股票逻辑（例如：<i>“海康威视”</i> 或 <i>“帮我分析下中际旭创明天的走势”</i>）\n` +
       `• 问大盘与行业（例如：<i>“光模块和半导体接下来哪个更有空间？”</i>）\n` +
       `• 问任何金融、量化、编程或日常问题，<b>Google Gemini</b> 都会实时为你解答！\n\n` +
       `也可以直接点击下方快捷大按钮进行一键操作：`;
@@ -467,34 +467,34 @@ ${newsContext}
   sendTelegramChatAction(env, chatId, 'typing').catch(() => {});
 
   try {
-    // 1. 智能提取用户提到的股票代码或常见股票名称，抓取实时行情注入上下文
+    // 1. 🌟【全市场 5000+ 股票动态智能联想】：支持任意股票名称或代码动态解析实时行情
     let liveQuoteInfo = '';
-    const stockKeywords = [
-      { name: '生益科技', symbol: 'sh600183' },
-      { name: '中际旭创', symbol: 'sz300308' },
-      { name: '天孚通信', symbol: 'sz300394' },
-      { name: '新易盛', symbol: 'sz300502' },
-      { name: '蓝思科技', symbol: 'sz300433' },
-      { name: '拓荆科技', symbol: 'sh688072' },
-      { name: '兆易创新', symbol: 'sh603986' },
-      { name: '寒武纪', symbol: 'sh688256' },
-      { name: '澜起科技', symbol: 'sh688008' },
-      { name: '工业富联', symbol: 'sh601138' },
-      { name: '立讯精密', symbol: 'sz002475' }
-    ];
-
     let targetSymbol = '';
-    const codeMatch = text.match(/\b([036]\d{5})\b/);
+
+    const codeMatch = text.match(/\b([0368]\d{5})\b/);
     if (codeMatch) {
       const code = codeMatch[1];
-      targetSymbol = code.startsWith('6') ? `sh${code}` : `sz${code}`;
+      targetSymbol = code.startsWith('6') || code.startsWith('688') ? `sh${code}` : `sz${code}`;
     } else {
-      for (const sk of stockKeywords) {
-        if (text.includes(sk.name)) {
-          targetSymbol = sk.symbol;
-          break;
+      // 提取文本中的汉字股票名称（通过腾讯智能检索接口动态匹配）
+      const cleanKeyword = text.replace(/[\s,，.。!！?？]/g, '').slice(0, 10);
+      try {
+        const hintRes = await fetch(`https://smartbox.gtimg.cn/s3/?t=all&q=${encodeURIComponent(cleanKeyword)}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        if (hintRes.ok) {
+          const hintBuf = await hintRes.arrayBuffer();
+          const hintStr = new TextDecoder('gbk').decode(hintBuf);
+          const match = hintStr.match(/v_hint="([^"]+)"/);
+          if (match && match[1]) {
+            const parts = match[1].split('~');
+            if (parts.length >= 3 && parts[1] && /^\d{6}$/.test(parts[1])) {
+              const market = parts[0] || (parts[1].startsWith('6') ? 'sh' : 'sz');
+              targetSymbol = `${market}${parts[1]}`;
+            }
+          }
         }
-      }
+      } catch (e) {}
     }
 
     if (targetSymbol) {
@@ -505,7 +505,7 @@ ${newsContext}
           const qStr = new TextDecoder('gbk').decode(qBuf);
           const parts = qStr.split('~');
           if (parts.length >= 6) {
-            liveQuoteInfo = `\n【${parts[1]}(${parts[2]}) 最新实时行情】：现价 ¥${parts[3]}，今日涨跌幅 ${parts[5]}%，成交额 ${(parseFloat(parts[7]||0)/10000).toFixed(2)}亿元。`;
+            liveQuoteInfo = `\n【${parts[1]}(${parts[2]}) 最新实时盘口】：现价 ¥${parts[3]}，今日涨跌幅 ${parts[5]}%，成交额 ${(parseFloat(parts[7]||0)/10000).toFixed(2)}亿元。`;
           }
         }
       } catch (e) {}
@@ -524,7 +524,7 @@ ${newsContext}
 
     const chatPrompt = `你是用户的专属私人 AI 首席量化投研总监兼顶级金融智囊（底层驱动：Google Gemini 旗舰大模型）。
 你的核心素养与定位：
-1. 【量化与投研专家】：你不仅精通 A 股技术分析、Qlib量价共振、Minervini趋势突破、主力大单筹码流向，更深刻洞察宏观经济、行业周期（如光模块CPO、半导体先进封装、消费电子AI端侧等）以及FinGPT舆情情绪。
+1. 【量化与投研专家】：你不仅精通 A 股技术分析、Qlib量价共振、Minervini趋势突破、主力大单筹码流向，更深刻洞察宏观经济、行业周期以及FinGPT舆情情绪。
 2. 【全能AI助手】：对于金融和股票问题，你要像顶级基金经理一样给出详尽、条理严密、有数据、有逻辑支撑的深度研判；对于编程、数学、逻辑推理或日常对话，你要展现Gemini原生强大的智慧、幽默与亲和力。
 3. 【禁止笼统敷衍】：坚决杜绝“存在风险”、“具体要看情况”等无意义的套话废话。务必给出确定性的逻辑、具体的关键点位（支撑/压力/均线）、行业催化事件以及明确的操作指引。
 
