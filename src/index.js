@@ -62,13 +62,14 @@ export default {
       try {
         const update = await request.json();
         if (update?.message) {
-          ctx.waitUntil(handleTelegramCommand(update.message, env));
+          await handleTelegramCommand(update.message, env);
         } else if (update?.callback_query) {
-          ctx.waitUntil(handleTelegramCallback(update.callback_query, env));
+          await handleTelegramCallback(update.callback_query, env);
         }
         return new Response('OK');
       } catch (err) {
-        return new Response('Error', { status: 400 });
+        console.error('Webhook 处理异常:', err);
+        return new Response('OK'); // 始终返回 200 OK 避免 Telegram 重复重试
       }
     }
 
@@ -857,57 +858,101 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
   if (!env.TG_BOT_TOKEN) return;
   const replyMarkup = {
     keyboard: [
-      [{ text: "⚡ 立即实时选股" }, { text: "❄️ 查询雪球组合 (ZH3664845)" }],
+      [{ text: "⚡ 立即实时选股" }, { text: "❄️ 查询雪球组合" }],
       [{ text: "📰 实时舆情雷达" }, { text: "🔋 查询剩余算力" }],
-      [{ text: "📊 打开 storkB 看板" }]
+      [{ text: "📈 打开 storkA 看板" }, { text: "📊 打开 storkB 看板" }]
     ],
     resize_keyboard: true,
     persistent: true
   };
 
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup
-      })
-    });
-    // 如果 Telegram HTML 解析失败（如特殊字符），自动降级为纯文本重发，保障 100% 送达！
-    if (!res.ok) {
-      await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+  if (!env.TG_BOT_TOKEN) return;
+  const chunks = splitTextIntoTelegramChunks(text, 3500);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const isLast = (i === chunks.length - 1);
+    const body = {
+      chat_id: chatId,
+      text: chunk,
+      parse_mode: 'HTML'
+    };
+    if (isLast) {
+      body.reply_markup = replyMarkup;
+    }
+
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: text.replace(/<[^>]*>/g, ''),
-          reply_markup: replyMarkup
-        })
+        body: JSON.stringify(body)
       });
-    }
-  } catch (e) {}
+      // 容错降级：如果 HTML 解析失败（如特殊字符缺失闭合），自动剥离 HTML 标签重新发送
+      if (!res.ok) {
+        body.text = chunk.replace(/<[^>]*>/g, '');
+        delete body.parse_mode;
+        await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+      }
+    } catch (e) {}
+  }
 }
 
-// 发送基础消息 (防 HTML 解析失败自动降级)
+// 发送基础消息 (支持超长文本分段与 HTML 自动容灾)
 async function sendTelegramMessage(env, chatId, text) {
   if (!env.TG_BOT_TOKEN) return;
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
-    });
-    if (!res.ok) {
-      await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+  const chunks = splitTextIntoTelegramChunks(text, 3500);
+
+  for (const chunk of chunks) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: text.replace(/<[^>]*>/g, '') })
+        body: JSON.stringify({ chat_id: chatId, text: chunk, parse_mode: 'HTML' })
       });
+      if (!res.ok) {
+        await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: chunk.replace(/<[^>]*>/g, '') })
+        });
+      }
+    } catch (e) {}
+  }
+}
+
+// 🌟 智能消息分段器：防止 Telegram 4096 字符上限截断，按段落/换行平滑切割
+function splitTextIntoTelegramChunks(str, maxLen = 3500) {
+  if (!str) return [];
+  if (str.length <= maxLen) return [str];
+
+  const chunks = [];
+  let remaining = str;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
     }
-  } catch (e) {}
+
+    // 寻找最近的段落换行符 \n\n 或单换行 \n
+    let splitIdx = remaining.lastIndexOf('\n\n', maxLen);
+    if (splitIdx === -1 || splitIdx < maxLen * 0.5) {
+      splitIdx = remaining.lastIndexOf('\n', maxLen);
+    }
+    if (splitIdx === -1 || splitIdx < maxLen * 0.5) {
+      splitIdx = maxLen;
+    }
+
+    const chunk = remaining.slice(0, splitIdx).trim();
+    if (chunk) chunks.push(chunk);
+    remaining = remaining.slice(splitIdx).trim();
+  }
+
+  return chunks;
 }
 
 // 算力与 Token 监控追踪器（支持 Gemini 官方 Token 计量与多级降级状态）
@@ -1075,7 +1120,7 @@ async function generateAIAnalysis(prompt, env) {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.6,
-            maxOutputTokens: 1200
+            maxOutputTokens: 4000
           }
         })
       });
@@ -1084,7 +1129,7 @@ async function generateAIAnalysis(prompt, env) {
         const data = await res.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) {
-          const tokenCount = data?.usageMetadata?.totalTokenCount || 1200;
+          const tokenCount = data?.usageMetadata?.totalTokenCount || 2000;
           await recordAIUsage(env, tokenCount, 2600);
           await recordActiveModel(env, 'Google Gemini 3.7 Flash 官方旗舰', 1, primaryModel);
           return { text, engineName: `Google Gemini 3.7 Flash (${data?.modelVersion || primaryModel})`, tokenCount };
@@ -1111,7 +1156,7 @@ async function generateAIAnalysis(prompt, env) {
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               temperature: 0.6,
-              maxOutputTokens: 1200
+              maxOutputTokens: 4000
             }
           })
         });
@@ -1120,7 +1165,7 @@ async function generateAIAnalysis(prompt, env) {
           const data = await res.json();
           const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (text) {
-            const tokenCount = data?.usageMetadata?.totalTokenCount || 1200;
+            const tokenCount = data?.usageMetadata?.totalTokenCount || 2000;
             await recordAIUsage(env, tokenCount, 2600);
             await recordActiveModel(env, 'Google Gemini 3.6 Flash (已降级备用)', 2, fModel);
             return { text, engineName: `Google Gemini 3.6 Flash (降级备用: ${fModel})`, tokenCount };
