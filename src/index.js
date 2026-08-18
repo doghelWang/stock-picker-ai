@@ -1082,8 +1082,11 @@ async function generateAIAnalysis(prompt, env) {
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.6,
-            maxOutputTokens: 4000
+            temperature: 0.7,
+            maxOutputTokens: 2500,
+            thinkingConfig: {
+              thinkingBudget: 0
+            }
           }
         })
       });
@@ -1093,7 +1096,7 @@ async function generateAIAnalysis(prompt, env) {
         const data = await res.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) {
-          const tokenCount = data?.usageMetadata?.totalTokenCount || 2000;
+          const tokenCount = data?.usageMetadata?.totalTokenCount || 1000;
           await recordAIUsage(env, tokenCount, 2600);
           await recordActiveModel(env, 'Google Gemini 3.7 Flash 官方旗舰', 1, primaryModel);
           return { text, engineName: `Google Gemini 3.7 Flash (${data?.modelVersion || primaryModel})`, tokenCount };
@@ -1111,7 +1114,7 @@ async function generateAIAnalysis(prompt, env) {
       for (const fModel of fallbackModels) {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
         const ctrl = new AbortController();
-        const tId = setTimeout(() => ctrl.abort(), 6000);
+        const tId = setTimeout(() => ctrl.abort(), 4000);
         const res = await fetch(url, {
           method: 'POST',
           headers: {
@@ -1122,8 +1125,11 @@ async function generateAIAnalysis(prompt, env) {
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
-              temperature: 0.6,
-              maxOutputTokens: 4000
+              temperature: 0.7,
+              maxOutputTokens: 2500,
+              thinkingConfig: {
+                thinkingBudget: 0
+              }
             }
           })
         });
