@@ -674,12 +674,48 @@ function formatMarkdownToTelegramHtml(mdText) {
   return html.trim();
 }
 
-// 1. 专业机构/券商深度研报与宏观策略流抓取 (新浪财经机构专栏 + 东方财富研报数据流)
+// 1. 国际顶级财经机构与全球宏观投研流 (Yahoo Finance / 华尔街投行 / 美联储外资与全球AI产业链)
+async function fetchGlobalOverseasNews() {
+  const globalNews = [];
+  const headers = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' };
+
+  const urls = [
+    "https://query2.finance.yahoo.com/v1/finance/search?q=China&newsCount=10",
+    "https://query2.finance.yahoo.com/v1/finance/search?q=Robotics+AI&newsCount=8",
+    "https://query2.finance.yahoo.com/v1/finance/search?q=Economy+Federal+Reserve&newsCount=8"
+  ];
+
+  for (const u of urls) {
+    try {
+      const res = await fetch(u, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        for (const n of (data?.news || [])) {
+          const title = n.title || '';
+          const publisher = n.publisher || '华尔街/国际投行';
+          if (title && !globalNews.some(g => g.title === title)) {
+            globalNews.push({
+              source: `🌐 [国际投研/宏观] ${publisher}`,
+              title,
+              time: '最新海外'
+            });
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  return globalNews.slice(0, 10);
+}
+
+// 2. 国内专业机构/券商深度研报与宏观策略流 (新浪财经机构专栏 + 财联社/东财机构内参)
 async function fetchInstitutionalReports() {
   const reports = [];
+  const headers = { "User-Agent": "Mozilla/5.0" };
+
   try {
-    const url = "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2516&k=&num=20&page=1";
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    // 2.1 新浪财经券商机构研报与深度投研数据流
+    const urlSina = "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2516&k=&num=20&page=1";
+    const res = await fetch(urlSina, { headers });
     if (res.ok) {
       const data = await res.json();
       const list = data?.result?.data || [];
@@ -697,40 +733,75 @@ async function fetchInstitutionalReports() {
         }
       }
     }
-  } catch (e) {
-    console.warn('获取券商机构研报流异常:', e.message);
-  }
-  return reports;
-}
+  } catch (e) {}
 
-// 7×24 小时 A 股财经快讯与专业研报融合抓取管道 (基于 FinGPT / FinNLP 架构)
-async function fetchLiveFinancialNews() {
-  const newsList = [];
   try {
-    // 1. 新浪财经 7x24 小时全球与 A 股即时快讯
-    const sinaRes = await fetch("https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&tag_id=0&page=1&page_size=15", {
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
-    if (sinaRes.ok) {
-      const data = await sinaRes.json();
-      const items = data?.result?.data?.feed?.list || [];
-      for (const item of items) {
-        const text = (item.rich_text || item.docurl || '').replace(/<[^>]*>/g, '').trim();
-        if (text) {
-          newsList.push({
-            time: item.create_time ? item.create_time.slice(11, 16) : new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }),
-            content: text.slice(0, 160)
+    // 2.2 财联社 (CLS) 官方 7×24 实时电报流 (国内顶级机构快讯)
+    const urlCls = "https://m.cailianpress.com/nodeapi/telegraphs?refresh_type=1&rn=15";
+    const clsRes = await fetch(urlCls, { headers });
+    if (clsRes.ok) {
+      const clsData = await clsRes.json();
+      for (const it of (clsData?.data?.roll_data || [])) {
+        const title = it.title || it.content || '';
+        if (title && !reports.some(r => r.title.includes(title.slice(0, 15)))) {
+          reports.push({
+            type: 'CLS_TELEGRAPH',
+            source: '⚡ 财联社机构电报',
+            title: title.slice(0, 150),
+            summary: title.slice(0, 150),
+            time: '实时'
           });
         }
       }
     }
   } catch (e) {}
 
-  try {
-    // 2. 东方财富 7x24 财经快讯补充
-    const emRes = await fetch("https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_15_1_.html", {
-      headers: { "User-Agent": "Mozilla/5.0" }
+  return reports;
+}
+
+// 7×24 小时 A 股、国际投行与专业研报【全维度全球舆情聚合中枢】
+async function fetchLiveFinancialNews() {
+  const newsList = [];
+  const headers = { "User-Agent": "Mozilla/5.0" };
+
+  // 1. 国际顶级机构与全球宏观要闻
+  const globalItems = await fetchGlobalOverseasNews();
+  for (const g of globalItems.slice(0, 5)) {
+    newsList.push({
+      time: g.time,
+      content: `【国际宏观/海外映射】${g.source}: ${g.title}`
     });
+  }
+
+  // 2. 国内头部券商机构深度研报与财联社电报
+  const reports = await fetchInstitutionalReports();
+  for (const r of reports.slice(0, 8)) {
+    newsList.push({
+      time: r.time,
+      content: `【机构研报/内参】${r.source} - ${r.title}`
+    });
+  }
+
+  // 3. 新浪财经 7x24 全球与 A 股即时快讯
+  try {
+    const sinaRes = await fetch("https://zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&tag_id=0&page=1&page_size=12", { headers });
+    if (sinaRes.ok) {
+      const data = await sinaRes.json();
+      for (const item of (data?.result?.data?.feed?.list || [])) {
+        const text = (item.rich_text || item.docurl || '').replace(/<[^>]*>/g, '').trim();
+        if (text) {
+          newsList.push({
+            time: item.create_time ? item.create_time.slice(11, 16) : '最新',
+            content: text.slice(0, 150)
+          });
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 4. 东方财富 7x24 财经快讯补充
+  try {
+    const emRes = await fetch("https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_12_1_.html", { headers });
     if (emRes.ok) {
       const raw = await emRes.text();
       const rawJson = raw.replace("var ajaxResult=", "").trim().replace(/;$/, '');
@@ -740,23 +811,14 @@ async function fetchLiveFinancialNews() {
         if (title && !newsList.some(n => n.content.includes(title.slice(0, 15)))) {
           newsList.push({
             time: item.showTime ? item.showTime.slice(11, 16) : '最新',
-            content: title.slice(0, 160)
+            content: title.slice(0, 150)
           });
         }
       }
     }
   } catch (e) {}
 
-  // 3. 融合机构深度研报
-  const reports = await fetchInstitutionalReports();
-  for (const r of reports.slice(0, 8)) {
-    newsList.push({
-      time: r.time,
-      content: `【机构深度】${r.title} - ${r.summary}`
-    });
-  }
-
-  return newsList.slice(0, 20);
+  return newsList.slice(0, 25);
 }
 
 // 舆情与量化双击共振分析引擎 (基于 Gemini 3.7 + FinGPT 语义评分 + 券商机构研报)
