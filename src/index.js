@@ -1054,16 +1054,14 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
 // 🌟 微信公众号官方合规全自动复盘与草稿箱发布系统
 // ==========================================
 
-const WX_DEFAULT_CONFIG = {
-  appId: 'wx81f13262dc7d9753',
-  appSecret: '647c25d712d2bc735d9ffdd254411f41',
-  thumbMediaId: '-C5JBoyXx32w_iGj224CtAGZehKXzOvUnPxK56KqXwGD46Y_mJ_gPtfrL69FktAm'
-};
-
-// 1. 获取并智能缓存微信公众号 access_token (带 KV 自动续期)
+// 1. 获取并智能缓存微信公众号 access_token (带 KV 自动续期，严格通过 Cloudflare Secret 加密存取)
 async function getWeChatAccessToken(env) {
-  const appId = env?.WX_APPID || WX_DEFAULT_CONFIG.appId;
-  const appSecret = env?.WX_APPSECRET || WX_DEFAULT_CONFIG.appSecret;
+  const appId = env?.WX_APPID;
+  const appSecret = env?.WX_APPSECRET;
+
+  if (!appId || !appSecret) {
+    throw new Error('未配置 WX_APPID 或 WX_APPSECRET 加密环境变量');
+  }
 
   if (env && env.AI_USAGE) {
     try {
@@ -1183,7 +1181,7 @@ async function runWeChatDailyPostMarketPublisher(env) {
     // 4.3 构造微信标题与摘要 (严格限制字数与合规性)
     const title = `A股全息量化复盘：市场动量与客观走势跟踪(${todayStr})`;
     const digest = `今日全市场行情深度剖析、100支动态精选池龙头量价点评与客观趋势梳理。`;
-    const thumbMediaId = env?.WX_THUMB_MEDIA_ID || WX_DEFAULT_CONFIG.thumbMediaId;
+    const thumbMediaId = env?.WX_THUMB_MEDIA_ID || '';
 
     // 4.4 获取微信 access_token 并提交至草稿箱 API
     const accessToken = await getWeChatAccessToken(env);
