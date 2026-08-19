@@ -14,6 +14,12 @@ export default {
       return;
     }
 
+    // 1.15 每日 08:00 微信公众号 AGV/AMR 智能移动机器人硬核科普专栏全自动发布 (08:00-08:05)
+    if (bjHour === 8 && bjMin <= 5) {
+      ctx.waitUntil(runWeChatDailyAGVPublisher(env));
+      return;
+    }
+
     // 1.2 收盘深度复盘时段 (15:05 ~ 15:10)
     if (bjHour === 15 && bjMin >= 3 && bjMin <= 12) {
       if (bjDay === 6 || bjDay === 0) {
@@ -24,7 +30,7 @@ export default {
       return;
     }
 
-    // 1.25 每日 16:00 微信公众号合规盘后长文全自动撰写与草稿发布 (工作日 16:00-16:05)
+    // 1.25 每日 16:00 微信公众号 A股全息深度复盘与草稿全自动发布 (工作日 16:00-16:05)
     if (bjHour === 16 && bjMin <= 5 && bjDay >= 1 && bjDay <= 5) {
       ctx.waitUntil(runWeChatDailyPostMarketPublisher(env));
       return;
@@ -459,11 +465,19 @@ ${newsContext}
     return;
   }
 
-  // 3.8 指令：/wechat 或精确点击 "📢 生成公众号复盘长文"
+  // 3.8 指令：/wechat 或精确点击 "📢 生成公众号复盘"
   if (text === '/wechat' || text === '📢 生成公众号复盘' || text.toLowerCase() === 'wechat') {
     sendTelegramChatAction(env, chatId, 'typing').catch(() => {});
     await sendTelegramMessage(env, chatId, '✍️ <b>正在启动微信公众号盘后复盘合规文章撰写引擎...</b>\n由 Gemini 3.7 全息排版并自动提交至公众号草稿箱，请稍候约 15 秒...');
     await runWeChatDailyPostMarketPublisher(env);
+    return;
+  }
+
+  // 3.9 指令：/agv 或精确点击 "🤖 生成AGV专栏"
+  if (text === '/agv' || text === '🤖 生成AGV专栏' || text.toLowerCase() === 'agv') {
+    sendTelegramChatAction(env, chatId, 'typing').catch(() => {});
+    await sendTelegramMessage(env, chatId, '🤖 <b>正在启动 AGV/AMR 智能移动机器人硬核科普长文撰写引擎...</b>\n由 Gemini 3.7 全息排版并自动提交至公众号草稿箱，请稍候约 15 秒...');
+    await runWeChatDailyAGVPublisher(env);
     return;
   }
 
@@ -1009,8 +1023,8 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
     keyboard: [
       [{ text: "⚡ 立即实时选股" }, { text: "🌊 备选池 Top100" }],
       [{ text: "🌟 核心白名单标的" }, { text: "📰 实时舆情雷达" }],
-      [{ text: "📢 生成公众号复盘" }, { text: "❄️ 查询雪球组合" }],
-      [{ text: "📈 打开 storkA 看板" }, { text: "🔋 查询剩余算力" }]
+      [{ text: "📢 生成公众号复盘" }, { text: "🤖 生成AGV专栏" }],
+      [{ text: "❄️ 查询雪球组合" }, { text: "🔋 查询剩余算力" }]
     ],
     resize_keyboard: true,
     persistent: true
@@ -1251,6 +1265,129 @@ async function runWeChatDailyPostMarketPublisher(env) {
     if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
       try {
         await sendTelegramMessage(env, env.TG_CHAT_ID, `⚠️ 微信公众号文章发布失败: ${err.message}`);
+      } catch (e) {}
+    }
+    return { success: false, error: err.message };
+  }
+}
+
+// 5. 每日 08:00 微信公众号 AGV/AMR 智能移动机器人硬核科普长文全自动发布系统
+const AGV_CURATED_TOPICS = [
+  { title: "AGV入门：激光SLAM导航与建图原理解析", core: "2D/3D 激光雷达点云匹配、Cartographer 与 Gmapping 算法在自主移动机器人中的实战应用" },
+  { title: "AGV底盘运动学模型与差速全向轮控制", core: "两轮差速、四轮麦克纳姆轮、单舵轮与双舵轮运动学解算及轨迹规划算法" },
+  { title: "AGV多传感器融合与四重安全避障体系", core: "激光避障雷达、3D ToF 深度相机、超声波测距与安全触边防撞四重冗余设计" },
+  { title: "百台级集群：多机调度系统(RCS)与路径规划", core: "A* 算法、Dijkstra 与时间空间冲突避免 (MAPF) 在仓储物流自动化中的调度架构" },
+  { title: "AGV电池管理(BMS)与自动在线对位充电技术", core: "磷酸铁锂电池充放电曲线、无线/伸缩电极自动充电桩与智能电池均衡维护策略" },
+  { title: "工业总线与底层通信架构(CAN/EtherCAT/ROS2)", core: "CANopen、Modbus TCP 与 ROS 2 / DDS 实时中间件在机器人各执行机构中的实时通信" },
+  { title: "具身智能与四足机器人在工业巡检中的结合", core: "四足机器人运动控制、楼梯地形自适应与变电站/化工厂智能防爆巡视" },
+  { title: "关键核心零部件选型计算指南", core: "低压大功率直流伺服电机、精密行星减速机、驱动器与安全 PLC 选型计算" },
+  { title: "工业移动机器人国际安全标准(ISO 3691-4)", core: "安全完整性等级 (SIL/PLd)、急停链路、速度监控与人机协作安全规范" },
+  { title: "二维码导航与视觉惯导(VIO)融合定位", core: "地面二维码定位纠偏、工业相机光流与 IMU 零速修正 (ZUPT) 提高定位精度" }
+];
+
+async function runWeChatDailyAGVPublisher(env) {
+  const startTime = Date.now();
+  const now = new Date();
+  const beijingDate = new Date(now.getTime() + 8 * 3600 * 1000);
+  const dayOfYear = Math.floor((beijingDate - new Date(beijingDate.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
+  const topicIdx = dayOfYear % AGV_CURATED_TOPICS.length;
+  const currentTopic = AGV_CURATED_TOPICS[topicIdx];
+  const nowStr = beijingDate.toLocaleString('zh-CN');
+
+  try {
+    const prompt = `你是一位拥有15年工业机器人与AGV/AMR移动机器人研发经验的资深系统架构师。
+请针对主题【${currentTopic.title}】（核心技术点：${currentTopic.core}），撰写一篇通俗易懂、图文并茂、深入浅出的【微信公众号硬核技术科普长文】。
+
+【文章内容与结构要求】：
+1. 必须包含四大板块：
+   - 📌【一、什么是该技术的本质与工程背景？】（用通俗生动的比喻讲透概念）
+   - ⚙️【二、核心技术原理解析与架构拆解】（详细讲解工作流程、数学/算法逻辑、硬件交互）
+   - 🏭【三、典型工业应用场景与实战案例】（结合半导体洁净室、新能源汽车工厂、3C电子物流等实际落地）
+   - 💡【四、未来技术演进与工程师选型避坑建议】（给出参数选型、环境干扰应对与未来发展趋势）
+2. 必须输出为原生标准的富文本 HTML 代码格式（使用干净的 section、div、h2、h3、p 标签，带有优雅的内联 CSS 样式，如科技蓝/翡翠绿卡片背景、圆角、重点高亮等适合微信公众号阅读的排版），不要输出 Markdown。`;
+
+    const aiRes = await generateAIAnalysis(prompt, env);
+    let rawHtml = (aiRes.text || '')
+      .replace(/```html/gi, '')
+      .replace(/```/g, '')
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .trim();
+
+    rawHtml = sanitizeWeChatComplianceContent(rawHtml);
+
+    const finalHtml = `
+<section style="font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif; line-height: 1.85; color: #334155; padding: 10px 4px;">
+  ${rawHtml}
+  
+  <div style="margin-top: 35px; padding: 16px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.6;">
+    <p style="margin: 0 0 4px 0; font-weight: 700; color: #0284c7;">🤖【AMR 智能移动机器人技术专栏】</p>
+    <p style="margin: 0;">每天早间 08:00 为你带来工业移动机器人、运动控制、SLAM 算法与具身智能硬核技术科普，欢迎关注探讨！</p>
+  </div>
+</section>
+`;
+
+    const title = currentTopic.title.slice(0, 30);
+    const digest = `工业移动机器人硬核科普系列：${currentTopic.core.slice(0, 45)}...`;
+    const thumbMediaId = env?.WX_THUMB_MEDIA_ID || '';
+
+    const accessToken = await getWeChatAccessToken(env);
+    const draftUrl = `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`;
+    
+    const draftPayload = {
+      articles: [
+        {
+          title,
+          author: "机器人",
+          digest,
+          content: finalHtml,
+          thumb_media_id: thumbMediaId,
+          need_open_comment: 1,
+          only_fans_can_comment: 0
+        }
+      ]
+    };
+
+    const draftRes = await fetch(draftUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draftPayload)
+    });
+
+    const draftData = await draftRes.json();
+    if (draftData.errcode && draftData.errcode !== 0) {
+      throw new Error(`微信草稿创建失败 [${draftData.errcode}]: ${draftData.errmsg}`);
+    }
+
+    const mediaId = draftData.media_id;
+    console.log('🎉 微信公众号 AGV 科普文章草稿创建成功, media_id:', mediaId);
+
+    const tgMsg = `🤖 <b>#【微信公众号 08:00 AGV技术专栏已就绪】</b> 🤖\n\n` +
+      `🕒 <b>生成时间：</b>${nowStr}\n` +
+      `📰 <b>文章主题：</b><b>${title}</b>\n` +
+      `🆔 <b>草稿箱 ID：</b><code>${mediaId}</code>\n` +
+      `📚 <b>本期核心：</b><i>${currentTopic.core}</i>\n\n` +
+      `📱 <b>操作指引：</b>文章已自动推送至公众号 <b>草稿箱</b>，可直接在手机微信公众号后台一键发表！`;
+
+    const inlineBtn = {
+      inline_keyboard: [
+        [
+          { text: "📲 打开微信公众号管理后台", url: "https://mp.weixin.qq.com" }
+        ]
+      ]
+    };
+
+    if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
+      try {
+        await sendTelegramMessageWithInline(env, env.TG_CHAT_ID, tgMsg, inlineBtn);
+      } catch (e) {}
+    }
+
+    return { success: true, mediaId, title, durationMs: Date.now() - startTime };
+  } catch (err) {
+    console.error('微信 AGV 文章发布异常:', err);
+    if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
+      try {
+        await sendTelegramMessage(env, env.TG_CHAT_ID, `⚠️ 微信 AGV 专栏生成失败: ${err.message}`);
       } catch (e) {}
     }
     return { success: false, error: err.message };
