@@ -1355,86 +1355,112 @@ async function runWeChatDailyPostMarketPublisher(env) {
   }
 }
 
-// 5. 每日 08:00 微信公众号 AMR 智能移动机器人硬核科普长文全自动发布系统 (无限滑动窗口递进生成引擎)
-const AMR_BASE_SEED_TOPICS = [
-  { day: 1, title: "AGV入门：激光SLAM导航与建图原理解析", core: "2D/3D 激光雷达点云匹配、Cartographer 与 Gmapping 算法在自主移动机器人中的实战应用" },
-  { day: 2, title: "AGV底盘运动学与全向移动控制全解", core: "两轮差速、四轮麦克纳姆轮、单舵轮与双舵轮运动学解算及工业底盘选型指南" },
-  { day: 3, title: "AGV多传感器融合与四重安全避障体系", core: "激光避障雷达、3D ToF 深度相机、超声波测距与安全触边防撞四重冗余设计" },
-  { day: 4, title: "百台级集群：多机调度系统(RCS)与路径规划", core: "A* 算法、Dijkstra 与时间空间冲突避免 (MAPF) 在仓储物流自动化中的调度架构" },
-  { day: 5, title: "AGV电池管理(BMS)与自动在线对位充电技术", core: "磷酸铁锂电池充放电曲线、无线/伸缩电极自动充电桩与智能电池均衡维护策略" },
-  { day: 6, title: "工业总线与底层通信架构(CAN/EtherCAT/ROS2)", core: "CANopen、Modbus TCP 与 ROS 2 / DDS 实时中间件在机器人各执行机构中的实时通信" },
-  { day: 7, title: "具身智能与四足机器人在工业巡检中的结合", core: "四足机器人运动控制、楼梯地形自适应与变电站/化工厂智能防爆巡视" },
-  { day: 8, title: "关键核心零部件选型计算指南", core: "低压大功率直流伺服电机、精密行星减速机、驱动器与安全 PLC 选型计算" },
-  { day: 9, title: "工业移动机器人国际安全标准(ISO 3691-4)", core: "安全完整性等级 (SIL/PLd)、急停链路、速度监控与人机协作安全规范" },
-  { day: 10, title: "二维码导航与视觉惯导(VIO)融合定位", core: "地面二维码定位纠偏、工业相机光流与 IMU 零速修正 (ZUPT) 提高定位精度" },
-  { day: 11, title: "反光板激光导航在高精度仓储中的实战应用", core: "高反射圆柱标靶三角定位解算、毫米级重复定位精度与工业叉车AGV应用" },
-  { day: 12, title: "3D视觉SLAM与环境光照自适应建图", core: "RGB-D点云稠密重建、特征点提取与高动态复杂光照车间建图优化" },
-  { day: 13, title: "AGV顶升机构与旋转台机械结构设计", core: "滚珠丝杠、剪叉式顶升、回转支承与液压升降系统在搬运机器人中的应用" },
-  { day: 14, title: "多机器人交通管制与动态死锁解除机制", core: "时空拓扑图、交叉路口预约制、基于优先级的死锁检测与回退策略" },
-  { day: 15, title: "AGV车载工控机与嵌入式控制器选型", core: "ARM Linux、x86 实时工控机、DSP 底层运动控制器与抗震宽温设计" },
-  { day: 16, title: "5G专网与工业WiFi无缝漫游在AMR中的实践", core: "低时延工业无线网络、BSSID 快速漫游切换与防丢包冗余通信机制" },
-  { day: 17, title: "托盘无人叉车(Forklift AGV)栈板识别与对位", core: "3D 视觉深度相机识别托盘插孔位姿、激光测距与位姿自适应纠偏" },
-  { day: 18, title: "移动底盘悬挂减震与地面贴地性平衡设计", core: "独立悬挂、浮动弹簧减震与连杆机构在过坑洼减速带中的动力学响应" },
-  { day: 19, title: "AGV惯性导航与卡尔曼滤波(EKF)数据融合", core: "高精度 MEMS IMU 陀螺仪积分、轮速计里程计与扩展卡尔曼滤波算法" },
-  { day: 20, title: "半导体洁净室(Cleanroom) AMR特殊防护要求", core: "Class 100/10 洁净度、防静电(ESD)导电轮、无颗粒排放与防尘密封设计" }
+// 5. 每日 08:00 微信公众号 AMR 智能移动机器人硬核科普长文全自动发布系统 (60讲体系化模块树 + 历史记忆链 + CF资源极致轻量化)
+const AMR_SYSTEM_CURRICULUM = [
+  // 【模块一：环境感知、SLAM建图与多源融合定位篇】(第 1~6 讲)
+  { day: 1, module: "模块一：环境感知与高精定位篇", title: "AGV入门：2D激光雷达原理与点云扫描基础", core: "激光测距飞行时间(ToF)原理、三角测距对比、点云数据帧结构与工业选型" },
+  { day: 2, module: "模块一：环境感知与高精定位篇", title: "激光SLAM算法实战：Cartographer与Gmapping图优化", core: "扫描匹配(ICP/NDT)、位姿图优化(Pose Graph)、回环检测机制消除累计里程计误差" },
+  { day: 3, module: "模块一：环境感知与高精定位篇", title: "3D激光SLAM与多线雷达点云畸变校正", core: "16/32线激光雷达运动畸变补偿、地面分割点云滤波与大场景3D特征点提取" },
+  { day: 4, module: "模块一：环境感知与高精定位篇", title: "视觉SLAM(VSLAM)与特征点/直接法环境建图", core: "RGB-D与双目相机测距、ORB特征提取匹配、光流追踪与高动态光照自适应建图" },
+  { day: 5, module: "模块一：环境感知与高精定位篇", title: "反光板激光导航在高精度仓储中的实战应用", core: "高反射圆柱标靶几何三角定位解算、毫米级重复定位精度与工业无人叉车AGV应用" },
+  { day: 6, module: "模块一：环境感知与高精定位篇", title: "多传感器融合：轮速计+IMU+激光EKF滤波定位", core: "高精度MEMS IMU陀螺仪积分、轮速计里程计、零速修正(ZUPT)与扩展卡尔曼滤波数据融合" },
+
+  // 【模块二：移动底盘机构、运动学解算与轨迹控制篇】(第 7~12 讲)
+  { day: 7, module: "模块二：底盘机构与运动控制篇", title: "双轮差速底盘运动学模型与航向角控制", core: "双轮差速正逆运动学解算、零转弯半径自转控制与潜伏顶升式AGV底盘架构" },
+  { day: 8, module: "模块二：底盘机构与运动控制篇", title: "麦克纳姆轮45°滚子矢量合成与全向横移控制", core: "四轮独立麦轮速度分解、全向3自由度平面运动、窄通道平移与轮面磨损维护" },
+  { day: 9, module: "模块二：底盘机构与运动控制篇", title: "单舵轮与双舵轮重载底盘运动学与阿克曼转向", core: "行走与转向独立双伺服控制、斜行蟹行、阿克曼几何解算与5~50吨重载工业底盘选型" },
+  { day: 10, module: "模块二：底盘机构与运动控制篇", title: "移动底盘悬挂减震与地面贴地性动力学平衡", core: "独立悬挂、浮动弹簧减震、连杆机构在越障过坑洼减速带中的动态载荷平衡" },
+  { day: 11, module: "模块二：底盘机构与运动控制篇", title: "局部路径规划与TEB/DWA轨迹跟踪控制器实战", core: "时间弹性带(TEB)算法、动态窗口法(DWA)速度采样、运动学硬约束与避障平滑控制" },
+  { day: 12, module: "模块二：底盘机构与运动控制篇", title: "AGV顶升机构与旋转台机械结构设计", core: "滚珠丝杠、剪叉式顶升、回转支承与液压升降系统在物料搬运机器人中的应用" },
+
+  // 【模块三：工业机器人核心硬件体系与电气选型篇】(第 13~18 讲)
+  { day: 13, module: "模块三：核心硬件与电气选型篇", title: "低压大功率直流无刷伺服与行星减速机选型计算", core: "额定转矩、峰值过载倍数、减速比匹配计算与转动惯量比(Inertia Ratio)整定" },
+  { day: 14, module: "模块三：核心硬件与电气选型篇", title: "伺服驱动器FOC磁场定向矢量控制与PID调谐", core: "电流环/速度环/位置环三环PID整定、SVPWM空间矢量调制与抗负载扰动前馈控制" },
+  { day: 15, module: "模块三：核心硬件与电气选型篇", title: "动力锂电池系统(BMS)充放电保护与在线自动充电", core: "磷酸铁锂电池充放电曲线、无线感应/伸缩电极自动充电桩与智能电池均衡维护" },
+  { day: 16, module: "模块三：核心硬件与电气选型篇", title: "车载工业级控制器(x86/ARM)与抗震宽温设计", core: "嵌入式工控机选型、DSP底层运动控制板、实时Linux内核与车载宽压电源隔离" },
+  { day: 17, module: "模块三：核心硬件与电气选型篇", title: "安全触边、急停回路与安全PLC硬件拓扑设计", core: "双通道急停控制回路、安全触边防撞条、OSSD安全激光雷达与安全继电器级联" },
+  { day: 18, module: "模块三：核心硬件与电气选型篇", title: "工业现场总线：CANopen、EtherCAT与ROS2通信", core: "CANopen CiA 402驱动协议、EtherCAT微秒级实时同步与ROS 2 / DDS工业微服务" },
+
+  // 【模块四：百台级集群调度系统(RCS)与交通管控篇】(第 19~24 讲)
+  { day: 19, module: "模块四：集群调度与交通管控篇", title: "多机调度系统(RCS)核心分层架构与任务指派", core: "中央调度引擎、分布式协同、基于订单优先级的任务分配与空闲车辆智能调度" },
+  { day: 20, module: "模块四：集群调度与交通管控篇", title: "时空拓扑图与MAPF多智能体寻路冲突避免算法", core: "时空A*算法、冲突搜索(CBS)算法、时间窗占有机制与百台级车流路径无死锁规划" },
+  { day: 21, module: "模块四：集群调度与交通管控篇", title: "交叉路口预约制与动态死锁检测及自动回退机制", core: "虚拟交通信号灯、路口冲突检测资源锁、环路死锁动态识别与后退脱困算法" },
+  { day: 22, module: "模块四：集群调度与交通管控篇", title: "国际通用标准VDA 5050协议交互规范全解析", core: "AGV与上层调度系统标准MQTT/JSON协议、OrderStatus消息体、动作指令解算" },
+  { day: 23, module: "模块四：集群调度与交通管控篇", title: "5G专网低时延通信与工业WiFi无缝漫游实践", core: "5G URLLC超高可靠超低时延、工业WiFi BSSID快速漫游切换与防丢包冗余通信" },
+  { day: 24, module: "模块四：集群调度与交通管控篇", title: "RCS调度系统与MES/WMS仓储制造系统对接实战", core: "RESTful API/WebHook工业接口、工位叫料信号闭环、物料台账同步与数据可视化" },
+
+  // 【模块五：行业标杆实战场景与极限制程应用篇】(第 25~30 讲)
+  { day: 25, module: "模块五：行业实战与标杆应用篇", title: "半导体洁净室(Class 100/10)防静电AMR防护", core: "晶圆盒(FOUP)精密对接、防静电(ESD)导电聚氨酯轮、无颗粒微尘排放与气流控制" },
+  { day: 26, module: "模块五：行业实战与标杆应用篇", title: "新能源锂电池制造重载防爆AGV全流程搬运", core: "极卷/电芯重载搬运、粉尘防爆认证等级、高温老化房耐温设计与自动对位下料" },
+  { day: 27, module: "模块五：行业实战与标杆应用篇", title: "汽车总装车间SPS物料自动化配送与柔性输送", core: "顺引物流SPS随行料车搬运、生产节拍同步控制与汽车混流产线柔性调度" },
+  { day: 28, module: "模块五：行业实战与标杆应用篇", title: "无人叉车(Forklift AGV)3D视觉栈板识别与插孔对位", core: "3D深度相机点云识别托盘插孔位姿、激光测距、偏角自适应纠偏与高位堆垛控制" },
+  { day: 29, module: "模块五：行业实战与标杆应用篇", title: "电商极速分拣：交叉带分拣机与飞翼式小车协同", core: "高速动态扫码读码、倾翻机构动作控制与海量包裹高速动态下料路由" },
+  { day: 30, module: "模块五：行业实战与标杆应用篇", title: "医药冷链(-20℃~-80℃)极低温工况移动机器人设计", core: "耐低温锂电池加热保温、低温润滑脂、结霜除湿与冷库密封通道设计" },
+
+  // 【模块六：复合移动机器人与机械臂协同操作篇】(第 31~36 讲)
+  { day: 31, module: "模块六：复合移动操作机器人篇", title: "复合移动机器人(Mobile Manipulator)手眼标定", core: "眼在手(Eye-in-Hand)与眼在外标定、九点标定法、变换矩阵与末端工具坐标系(TCP)" },
+  { day: 32, module: "模块六：复合移动操作机器人篇", title: "6自由度机械臂轨迹规划与移动底盘协同避障", core: "MoveIt 2 运动规划、碰撞检测、笛卡尔直线/圆弧轨迹与底盘全身协同解算" },
+  { day: 33, module: "模块六：复合移动操作机器人篇", title: "力控末端夹爪与半导体晶圆盒/精密元器件装配", core: "六维力矩传感器(F/T)、阻抗控制、柔性抓取与防损伤力反馈保护" },
+  { day: 34, module: "模块六：复合移动操作机器人篇", title: "视觉伺服控制(IBVS/PBVS)在移动抓取中的闭环跟踪", core: "基于图像的视觉伺服(IBVS)、位姿估计、相机内参补偿与动态工件抓取" },
+  { day: 35, module: "模块六：复合移动操作机器人篇", title: "复合机器人动力学解耦与动态倾覆力矩实时防护", core: "机械臂伸展重力偏心补偿、底盘支撑多边形稳定裕度(ZMP)与防侧翻控制" },
+  { day: 36, module: "模块六：复合移动操作机器人篇", title: "复合机器人在生物医药洁净实验室中的自动化落地", core: "移液枪抓取、试管离心机上下料、无菌环境防护与自动化实验流程控制" },
+
+  // 【模块七：数字孪生、仿真建模与虚拟调试篇】(第 37~42 讲)
+  { day: 37, module: "模块七：数字孪生与虚拟调试篇", title: "基于 NVIDIA Isaac Sim 的 AMR 物理级高保真仿真", core: "USD 场景资产导入、PhysX 刚体动力学、RTX 光线追踪激光传感器仿真" },
+  { day: 38, module: "模块七：数字孪生与虚拟调试篇", title: "ROS 2 + Gazebo 机器人物理仿真与传感器插件开发", core: "URDF/Xacro 机器人模型定义、差速/麦轮控制器插件与激光雷达虚拟数据流" },
+  { day: 39, module: "模块七：数字孪生与虚拟调试篇", title: "虚拟调试(Hardware-in-the-Loop)与工控机闭环联调", core: "虚拟PLC、真实车载工控机镜像、通信延迟模拟与出厂前全要素虚拟验证" },
+  { day: 40, module: "模块七：数字孪生与虚拟调试篇", title: "仓储数字孪生：百台级机器人能耗与交通瓶颈压力测试", core: "大规模车流仿真、拥堵热力图分析、充电桩配比优化与系统吞吐量瓶颈评估" },
+  { day: 41, module: "模块七：数字孪生与虚拟调试篇", title: "合成数据生成(SDG)与视觉深度学习模型预训练", core: "域随机化(Domain Randomization)、合成点云生成与工业缺陷/托盘识别模型训练" },
+  { day: 42, module: "模块七：数字孪生与虚拟调试篇", title: "数字孪生在新能源汽车制造产线虚拟移交中的落地", core: "3D产线可视化看板、设备故障孪生映射与产线节拍优化决策支持" },
+
+  // 【模块八：具身智能与工业四足/人形移动机器人篇】(第 43~48 讲)
+  { day: 43, module: "模块八：具身智能与仿生机器人篇", title: "轮足复合移动机器人：高速轮式与越障足式自适应切换", core: "轮足双模态运动学、台阶/碎石路面自适应感知与能量效率最优切换控制" },
+  { day: 44, module: "模块八：具身智能与仿生机器人篇", title: "四足工业巡检机器人全身动力学(WBC)与MPC控制", core: "凸模型预测控制(Convex MPC)、地面反作用力分配与外力扰动自平衡恢复" },
+  { day: 45, module: "模块八：具身智能与仿生机器人篇", title: "具身大模型(VLA)在工业移动操作中的任务拆解与控制", core: "自然语言指令解析、多模态视觉语言动作大模型与端到端机器人操作泛化" },
+  { day: 46, module: "模块八：具身智能与仿生机器人篇", title: "工业人形机器人双足行走运动学与重载推拉平衡控制", core: "倒立摆模型(LIPM)、捕获点(Capture Point)、推拉料箱工况下的质心动力学控制" },
+  { day: 47, module: "模块八：具身智能与仿生机器人篇", title: "高危变电站与化工厂防爆足式巡检机器人硬件体系", core: "正压防爆外壳、双光红外热成像测温、气体泄漏检测与自主巡检路径规划" },
+  { day: 48, module: "模块八：具身智能与仿生机器人篇", title: "具身智能与传统 AMR RCS 混合调度的未来工厂架构", core: "异构机器人统一接口、统一空间语义地图构建与人机机协同作业调度" },
+
+  // 【模块九：工业通信、边缘计算与安全云边端架构篇】(第 49~54 讲)
+  { day: 49, module: "模块九：边缘计算与云边端通信篇", title: "车载边缘计算(NVIDIA Jetson Orin) AI 推理加速", core: "TensorRT 模型量化部署、CUDA 激光点云加速与低功耗边缘异构计算优化" },
+  { day: 50, module: "模块九：边缘计算与云边端通信篇", title: "TSN(时间敏感网络)在微秒级多轴同步控制中的应用", core: "IEEE 802.1Qbv 时间感知整形器、确定性低抖动通信与硬实时总线替代方案" },
+  { day: 51, module: "模块九：边缘计算与云边端通信篇", title: "工业移动机器人网络安全防护与固件防篡改机制", core: "双向 mTLS 认证通信、Secure Boot 安全启动、硬件加密芯片与防重放攻击" },
+  { day: 52, module: "模块九：边缘计算与云边端通信篇", title: "车载系统 OTA 差分升级与 A/B 分区容灾回滚实战", core: "差分固件打包、无缝双系统分区热切换、断电保护与升级失败自动回退" },
+  { day: 53, module: "模块九：边缘计算与云边端通信篇", title: "移动机器人全生命周期远程运维(PHM)与健康预测", core: "电机轴承振动频谱分析、减速机磨损预警、电池健康度(SOH)估算与预防性维护" },
+  { day: 54, module: "模块九：边缘计算与云边端通信篇", title: "工业物联网(IIoT) OPC UA 与数据中台全链路对接", core: "OPC UA 信息模型构建、MQTT 边缘网关、时序数据库与工业数字化大屏" },
+
+  // 【模块十：国际安全标准、量产工艺与出海认证篇】(第 55~60 讲)
+  { day: 55, module: "模块十：安全认证与量产出海篇", title: "欧盟 CE 机械指令(MD)与电磁兼容(EMC)认证全流程", core: "EN ISO 3691-4、EN 1175、EMC 辐射抗扰度测试、技术文档(TCF)编制与DoC宣告" },
+  { day: 56, module: "模块十：安全认证与量产出海篇", title: "北美 UL 3100 与 ANSI/ITSDF B56.5 移动机器人标准", core: "UL 防火阻燃要求、碰撞吸能测试、安全控制回路与北美整机出海合规" },
+  { day: 57, module: "模块十：安全认证与量产出海篇", title: "功能安全系统设计(ISO 13849 PLd / SIL2)量化验证", core: "危险与风险评估(HARA)、平均危险失效时间(MTTFd)、诊断覆盖率(DC)与SISTEMA验证" },
+  { day: 58, module: "模块十：安全认证与量产出海篇", title: "工业移动机器人标准化量产制造与下线(EOL)质检", core: "装配工艺卡(SOP)、激光几何标定台架、满载颠簸老化测试与整车出厂检验标准" },
+  { day: 59, module: "模块十：安全认证与量产出海篇", title: "移动机器人全球化出海与海外本地化售后支持体系", core: "备品备件中心规划、远程故障诊断网关、多语言技术支持与海外服务闭环" },
+  { day: 60, module: "模块十：安全认证与量产出海篇", title: "【体系总结与展望】构建自主高柔性移动机器人新纪元", core: "60讲全栈知识体系大贯通、具身智能与工业制造融合趋势、中国移动机器人全球竞争力" }
 ];
 
-// 🌟 核心函数：动态获取并向前递进刷新 AMR 专题列表 (确保始终保持未来 20 天的储备清单)
+// 🌟 核心函数：动态获取并向前递进刷新 AMR 专题列表 (极致轻量化设计，0 多余 API 调用，完全满足 CF 资源限制)
 async function getAndRefreshAMRTopicsList(env, currentIndex) {
-  let topics = [...AMR_BASE_SEED_TOPICS];
+  let topics = [...AMR_SYSTEM_CURRICULUM];
   
   if (env && env.AI_USAGE) {
     try {
       const stored = await env.AI_USAGE.get('AMR_DYNAMIC_TOPICS_LIST', 'json');
-      if (Array.isArray(stored) && stored.length > 0) {
+      if (Array.isArray(stored) && stored.length > topics.length) {
         topics = stored;
       }
     } catch (e) {}
   }
 
-  // 检查滑动窗口：确保当前列表长度至少覆盖至 currentIndex + 20
+  // 若超出预置的 60 讲大纲，才触发极低频的轻量级后备延伸
   const targetMinLength = currentIndex + 20;
   if (topics.length < targetMinLength) {
-    const needCount = targetMinLength - topics.length;
-    const existingTitles = topics.map(t => t.title).join('、');
-    
-    // 由 Gemini 3.7 自动推演并追加后续前沿工业 AMR 专题
-    const prompt = `你是一位工业移动机器人（AGV/AMR）领域的全球首席技术导师。
-当前 AMR 专题系列已规划了 ${topics.length} 篇内容。为了保证专题库能够无限向后递进延伸，请根据工业界最新的前沿技术发展，连续规划接下来的 ${needCount} 个全新的高价值硬核技术专题。
-
-【已有专题列表（严格避免重复）】：
-${existingTitles}
-
-【新专题技术范畴建议】：
-涵盖：多机协同建图、VDA 5050 国际通用调度协议、ROS 2 Humble/Jazzy 实时控制、GPU 边缘 AI 加速（如 Jetson Orin）、数字孪生与仿真（Isaac Sim / Gazebo）、双臂复合移动机器人（Mobile Manipulator）、四足机器人整机动力学与全身控制（WBC）、光伏/锂电重载防爆 AGV 设计、高精度微动对接传感器（位移激光/触觉）、伺服电机矢量控制（FOC）等。
-
-【输出格式要求】：
-严格输出为 JSON 数组格式，不要输出任何 Markdown 标记：
-[
-  { "title": "专题标题（不超过25字）", "core": "核心技术要点与工程实战拆解（40-60字）" }
-]`;
-
-    try {
-      const aiRes = await generateAIAnalysis(prompt, env);
-      const jsonStr = (aiRes.text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
-      const match = jsonStr.match(/\[[\s\S]*\]/);
-      if (match) {
-        const newItems = JSON.parse(match[0]);
-        if (Array.isArray(newItems) && newItems.length > 0) {
-          for (let i = 0; i < newItems.length; i++) {
-            topics.push({
-              day: topics.length + 1,
-              title: newItems[i].title,
-              core: newItems[i].core
-            });
-          }
-          if (env && env.AI_USAGE) {
-            await env.AI_USAGE.put('AMR_DYNAMIC_TOPICS_LIST', JSON.stringify(topics));
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('动态生成递进专题失败，使用安全后备扩展:', err);
+    for (let i = topics.length + 1; i <= targetMinLength; i++) {
+      topics.push({
+        day: i,
+        module: "进阶高阶专题拓展篇",
+        title: `AMR前沿技术第${i}讲：工业多智能体前沿工程突破`,
+        core: `工业全自主移动机器人前沿算法优化、云边端协同架构与极限制程实战深度解算`
+      });
     }
   }
 
@@ -1460,17 +1486,48 @@ async function runWeChatDailyAGVPublisher(env) {
   const topics = await getAndRefreshAMRTopicsList(env, currentIdx);
   const topicItem = topics[currentIdx - 1] || topics[0];
 
-  try {
-    const prompt = `你是一位拥有15年工业机器人与AGV/AMR移动机器人研发经验的资深系统架构师。
-请针对主题【第 ${topicItem.day} 讲：${topicItem.title}】（核心技术点：${topicItem.core}），撰写一篇通俗易懂、图文并茂、深入浅出的【微信公众号硬核技术科普长文】。
+  // 3. 从 KV 中读取历史记忆链 (承上)
+  let historyMemory = null;
+  if (env && env.AI_USAGE) {
+    try {
+      historyMemory = await env.AI_USAGE.get('AMR_HISTORY_MEMORY', 'json');
+    } catch (e) {}
+  }
 
-【文章内容与结构要求】：
-1. 必须包含四大板块：
-   - 📌【一、什么是该技术的本质与工程背景？】（用通俗生动的比喻讲透概念）
-   - ⚙️【二、核心技术原理解析与架构拆解】（详细讲解工作流程、数学/算法逻辑、硬件交互）
-   - 🏭【三、典型工业应用场景与实战案例】（结合半导体洁净室、新能源汽车工厂、3C电子物流等实际落地）
-   - 💡【四、未来技术演进与工程师选型避坑建议】（给出参数选型、环境干扰应对与未来发展趋势）
-2. 必须输出为原生标准的富文本 HTML 代码格式（使用干净的 section、div、h2、h3、p 标签，带有优雅的内联 CSS 样式，如科技蓝/翡翠绿卡片背景、圆角、重点高亮等适合微信公众号阅读的排版），不要输出 Markdown。`;
+  const prevContext = historyMemory ? `
+【历史上下文记忆 (承上)】：
+上一讲为第 ${historyMemory.day} 讲【${historyMemory.title}】，属于【${historyMemory.module}】。
+上一讲核心工程结论：${historyMemory.core}。
+上一讲给读者留下的技术引申点：${historyMemory.nextTeaser || '探索更深层控制机制'}。
+` : `【历史上下文记忆】：这是本体系化专栏的系统性开篇教程。`;
+
+  // 4. 计算下期预告与引申线索 (启下)
+  const nextTopicItem = topics[currentIdx] || null;
+  const nextTeaserText = nextTopicItem ? `在明早 08:00 的第 ${nextTopicItem.day} 讲中，我们将进入【${nextTopicItem.module}】，深入剖析【${nextTopicItem.title}】（核心突破点：${nextTopicItem.core}）。` : '下期将进一步探索更高阶前沿技术。';
+
+  try {
+    const prompt = `你是一位拥有20年工业机器人与AGV/AMR全栈系统架构经验的全球首席技术导师。
+当前正在为工程师与研发团队撰写一套体系化、连续性、教材级的【AMR 智能移动机器人硬核工程技术专栏】。
+
+【当前知识体系模块】：${topicItem.module} · 第 ${topicItem.day} 讲
+【今日核心课题】：${topicItem.title}
+【今日技术要点】：${topicItem.core}
+
+${prevContext}
+
+【明天预告与引申线索 (启下)】：
+${nextTeaserText}
+
+【写作与知识系统构建要求】：
+1. 体系性与连续性：必须有清晰的承上启下逻辑！在文章开头自然回顾上一讲的核心技术结论，并点明本讲在【${topicItem.module}】整机系统中的关键承接位置；在文章末尾自然抛出对下一讲的技术预告与思考题；
+2. 严谨工程深度：必须具备工业级技术水准，包含清晰的数学/控制原理、硬件交互逻辑、时序与接口、参数计算方法以及现场真实避坑经验；
+3. 标准化五段式工程排版：
+   - 💡【一、承上启下与工程背景】（回顾上一讲，阐明为什么在实际工程中必须引入本讲技术）
+   - 📐【二、底层控制算法与数学原理拆解】（状态方程、矢量分解、算法伪代码/时序流程等深入剖析）
+   - 🛠️【三、关键硬件交互与工程实现细节】（电机驱动器/传感器/控制器引脚与通信交互细节）
+   - 🏭【四、典型工业产线落地与避坑指南】（结合半导体/汽车/锂电/电商等真实产线工程排错经验）
+   - 🧭【五、本讲小结与下期技术预告】（提炼2~3条黄金工程法则，并自然引出下一期技术预告）
+4. 输出格式：必须输出为原生标准的富文本 HTML 代码格式（使用干净的 section、div、h2、h3、p 标签，带有优雅的科技蓝/翡翠绿卡片背景、圆角、重点高亮等适合微信公众号阅读的排版），不要输出 Markdown。`;
 
     const aiRes = await generateAIAnalysis(prompt, env);
     let rawHtml = (aiRes.text || '')
@@ -1483,17 +1540,23 @@ async function runWeChatDailyAGVPublisher(env) {
 
     const finalHtml = `
 <section style="font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif; line-height: 1.85; color: #334155; padding: 10px 4px;">
+  <div style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; padding: 20px 16px; border-radius: 12px; margin-bottom: 22px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+    <span style="background: rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 20px; font-size: 11px; letter-spacing: 1px;">${topicItem.module}</span>
+    <h2 style="margin: 10px 0 6px 0; color: #ffffff; font-size: 19px; font-weight: 700;">第 ${topicItem.day} 讲 · ${topicItem.title}</h2>
+    <p style="margin: 0; font-size: 12px; color: #e0f2fe;">AMR 全栈移动机器人硬核工程师培养计划</p>
+  </div>
+
   ${rawHtml}
   
   <div style="margin-top: 35px; padding: 16px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.6;">
-    <p style="margin: 0 0 4px 0; font-weight: 700; color: #0284c7;">🤖【AMR 智能移动机器人技术专栏 · 第 ${topicItem.day} 讲】</p>
-    <p style="margin: 0;">每天早间 08:00 为你带来工业移动机器人、运动控制、SLAM 算法与具身智能硬核技术科普，欢迎关注探讨！</p>
+    <p style="margin: 0 0 4px 0; font-weight: 700; color: #0284c7;">🤖【AMR 智能移动机器人技术专栏 · ${topicItem.module}】</p>
+    <p style="margin: 0;">每天早间 08:00 体系化更新，系统构建工业移动机器人、运动控制、SLAM 算法与具身智能全栈技术体系！</p>
   </div>
 </section>
 `;
 
-    const title = topicItem.title.slice(0, 30);
-    const digest = `工业移动机器人硬核科普系列(第${topicItem.day}讲)：${topicItem.core.slice(0, 40)}...`;
+    const title = `【第${topicItem.day}讲】${topicItem.title}`.slice(0, 30);
+    const digest = `${topicItem.module}：${topicItem.core.slice(0, 35)}...`;
     const accessToken = await getWeChatAccessToken(env);
     const thumbMediaId = await getWeChatThumbMediaId(accessToken, env);
     const draftUrl = `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`;
@@ -1524,21 +1587,29 @@ async function runWeChatDailyAGVPublisher(env) {
     }
 
     const mediaId = draftData.media_id;
-    console.log(`🎉 微信公众号 AGV 科普第 ${topicItem.day} 讲创建成功, media_id:`, mediaId);
+    console.log(`🎉 微信公众号 AMR 体系化专栏第 ${topicItem.day} 讲创建成功, media_id:`, mediaId);
 
-    // 3. 成功后递进天数指针至下一天
+    // 5. 成功后递进天数指针至下一天，并持久化写入今日技术记忆
     if (env && env.AI_USAGE) {
       try {
         await env.AI_USAGE.put('AMR_TOPIC_CURRENT_INDEX', (currentIdx + 1).toString());
+        await env.AI_USAGE.put('AMR_HISTORY_MEMORY', JSON.stringify({
+          day: topicItem.day,
+          module: topicItem.module,
+          title: topicItem.title,
+          core: topicItem.core,
+          nextTeaser: nextTeaserText
+        }));
       } catch (e) {}
     }
 
-    const tgMsg = `🤖 <b>#【微信公众号 08:00 AMR技术专栏(第${topicItem.day}讲)已就绪】</b> 🤖\n\n` +
+    const tgMsg = `🤖 <b>#【AMR 全栈专栏 · ${topicItem.module} · 第${topicItem.day}讲已就绪】</b> 🤖\n\n` +
       `🕒 <b>生成时间：</b>${nowStr}\n` +
       `📰 <b>文章主题：</b><b>${title}</b>\n` +
       `🆔 <b>草稿箱 ID：</b><code>${mediaId}</code>\n` +
-      `📚 <b>本期核心：</b><i>${topicItem.core}</i>\n` +
-      `🔭 <b>前瞻规划：</b>专题大纲库已自动向前延伸至第 <b>${topics.length}</b> 讲（未来 20 天储备充足）！\n\n` +
+      `📚 <b>本讲核心：</b><i>${topicItem.core}</i>\n` +
+      `🧠 <b>记忆联动：</b>已注入上一讲结论回顾与下一讲引申线索，形成体系化闭环！\n` +
+      `🔭 <b>前瞻规划：</b>知识树大纲已向后储备至第 <b>${topics.length}</b> 讲！\n\n` +
       `📱 <b>操作指引：</b>文章已自动推送至公众号 <b>草稿箱</b>，可直接在手机微信公众号后台一键发表！`;
 
     const inlineBtn = {
@@ -1555,7 +1626,7 @@ async function runWeChatDailyAGVPublisher(env) {
       } catch (e) {}
     }
 
-    return { success: true, mediaId, title, day: topicItem.day, durationMs: Date.now() - startTime };
+    return { success: true, mediaId, title, day: topicItem.day, module: topicItem.module, durationMs: Date.now() - startTime };
   } catch (err) {
     console.error('微信 AGV 文章发布异常:', err);
     if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
