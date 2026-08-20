@@ -1221,9 +1221,9 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
 // ==========================================
 
 // 1. 获取并智能缓存微信公众号 access_token (严格且唯一通过阿里云固定 IP 116.62.39.177 中继，彻底终结动态 IP 泄漏)
-async function getWeChatAccessToken(env) {
-  // 1.1 优先检查 KV 缓存 (有效直接复用)
-  if (env && env.AI_USAGE) {
+async function getWeChatAccessToken(env, forceRefresh = false) {
+  // 1.1 优先检查 KV 缓存 (非强制刷新且有效时直接复用)
+  if (!forceRefresh && env && env.AI_USAGE) {
     try {
       const cached = await env.AI_USAGE.get('WX_ACCESS_TOKEN');
       if (cached) return cached;
@@ -1239,7 +1239,7 @@ async function getWeChatAccessToken(env) {
   }
 
   if (dynamicUrl) {
-    const relayUrl = `${dynamicUrl.replace(/\/+$/, '')}/api/wechat/token?key=amr_wechat_relay_2026_secure`;
+    const relayUrl = `${dynamicUrl.replace(/\/+$/, '')}/api/wechat/token?key=amr_wechat_relay_2026_secure${forceRefresh ? '&force=true' : ''}`;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const relayRes = await fetch(relayUrl, {
@@ -1319,7 +1319,7 @@ function sanitizeWeChatComplianceContent(rawText) {
     .replace(/暴涨|爆拉/g, '放量拉升');
 }
 
-// 3. 由 Gemini 3.7 生成符合微信官方审美与合规标准的富文本 HTML 文章
+// 3. 由 Gemini 撰写符合微信官方审美与合规标准的富文本 HTML 文章
 async function generateWeChatMarketArticleHtml(candidates, newsList, portfolio, env) {
   const todayStr = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
   
@@ -1332,7 +1332,7 @@ async function generateWeChatMarketArticleHtml(candidates, newsList, portfolio, 
   const newsSummary = newsList.slice(0, 8).map((n, i) => `${i + 1}. [${n.time}] ${n.content}`).join('\n');
 
   const prompt = `你是一位拥有20年顶级券商与量化对冲基金投研背景的首席策略分析师兼财经专栏主笔。
-请针对今日 (${todayStr}) A股收盘全景、全市场 100 支备选池中的核心龙头异动以及最新国内外机构研报，撰写一篇专业、严谨、深度的【微信公众号盘后投研专栏深度长文】。
+请针对今日 (${todayStr}) A股收盘全景、全市场 100 支备选池中的核心龙头异动以及最新国内外机构研报，撰写一篇专业、严谨、深度的【微信公众号盘后投研专栏深度长文】（篇幅不少于 1200 字）。
 
 【全市场 100 支动态池中核心领涨先锋】：
 ${stockSummary}
@@ -1404,7 +1404,7 @@ async function runWeChatDailyPostMarketPublisher(env) {
       portfolio = await callHubTradeAPI('/api/trade/portfolio');
     } catch (e) {}
 
-    // 4.2 由 Gemini 3.7 撰写微信公众号合规排版长文
+    // 4.2 由 Gemini 撰写微信公众号合规排版长文
     const articleHtml = await generateWeChatMarketArticleHtml(candidates, liveNews, portfolio, env);
 
     // 4.3 构造微信标题与摘要 (严格限制字数与合规性)
@@ -1412,8 +1412,8 @@ async function runWeChatDailyPostMarketPublisher(env) {
     const digest = `今日全市场行情深度剖析、100支动态精选池龙头量价点评与客观趋势梳理。`;
 
     // 4.4 获取微信 access_token 并提交至草稿箱 API (经由 116.62.39.177 转发)
-    const accessToken = await getWeChatAccessToken(env);
-    const thumbMediaId = await getWeChatThumbMediaId(accessToken, env);
+    let accessToken = await getWeChatAccessToken(env);
+    let thumbMediaId = await getWeChatThumbMediaId(accessToken, env);
     
     const draftPayload = {
       articles: [
@@ -1429,10 +1429,20 @@ async function runWeChatDailyPostMarketPublisher(env) {
       ]
     };
 
-    const draftData = await callWeChatAPI(env, `cgi-bin/draft/add?access_token=${accessToken}`, {
+    let draftData = await callWeChatAPI(env, `cgi-bin/draft/add?access_token=${accessToken}`, {
       method: 'POST',
       body: draftPayload
     });
+
+    // 若微信返回 40001 / 42001 (Token失效或非最新)，自动强制换新并重试一次
+    if (draftData.errcode === 40001 || draftData.errcode === 42001) {
+      console.warn('[微信草稿提示] Token 失效，正在强制从阿里云重新拉取最新 Token 并重试...');
+      accessToken = await getWeChatAccessToken(env, true);
+      draftData = await callWeChatAPI(env, `cgi-bin/draft/add?access_token=${accessToken}`, {
+        method: 'POST',
+        body: draftPayload
+      });
+    }
 
     if (draftData.errcode && draftData.errcode !== 0) {
       throw new Error(`微信草稿创建失败 [${draftData.errcode}]: ${draftData.errmsg}`);
@@ -1703,9 +1713,8 @@ ${nextTeaserText}
 
     const title = `【第${topicItem.day}讲】${topicItem.title}`.slice(0, 30);
     const digest = `${topicItem.module}：${topicItem.core.slice(0, 35)}...`;
-    const accessToken = await getWeChatAccessToken(env);
-    const thumbMediaId = await getWeChatThumbMediaId(accessToken, env);
-    const draftUrl = `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`;
+    let accessToken = await getWeChatAccessToken(env);
+    let thumbMediaId = await getWeChatThumbMediaId(accessToken, env);
     
     const draftPayload = {
       articles: [
@@ -1721,10 +1730,20 @@ ${nextTeaserText}
       ]
     };
 
-    const draftData = await callWeChatAPI(env, `cgi-bin/draft/add?access_token=${accessToken}`, {
+    let draftData = await callWeChatAPI(env, `cgi-bin/draft/add?access_token=${accessToken}`, {
       method: 'POST',
       body: draftPayload
     });
+
+    // 若微信返回 40001 / 42001 (Token失效或非最新)，自动强制换新并重试一次
+    if (draftData.errcode === 40001 || draftData.errcode === 42001) {
+      console.warn('[微信草稿提示] Token 失效，正在强制从阿里云重新拉取最新 Token 并重试...');
+      accessToken = await getWeChatAccessToken(env, true);
+      draftData = await callWeChatAPI(env, `cgi-bin/draft/add?access_token=${accessToken}`, {
+        method: 'POST',
+        body: draftPayload
+      });
+    }
 
     if (draftData.errcode && draftData.errcode !== 0) {
       throw new Error(`微信草稿创建失败 [${draftData.errcode}]: ${draftData.errmsg}`);
