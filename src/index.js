@@ -1051,7 +1051,91 @@ async function handleTelegramCallback(callbackQuery, env) {
   } else if (data === 'CHECK_QUOTA') {
     const quota = await getAIQuotaUsage(env);
     await sendTelegramMessage(env, chatId, `🔋 <b>今日剩余算力：</b>${quota.remDisplay} / 10k Neurons (~余 ${quota.approxCallsRemaining}次)`);
+  } else if (data && data.startsWith('HEAL_RETRY:')) {
+    const action = data.split(':')[1];
+    await sendTelegramMessage(env, chatId, '🛠️ <b>【自愈修复执行中】</b> 正在清除失效缓存并重新通过阿里云固定 IP 隧道生成发文...');
+    if (env && env.AI_USAGE) {
+      try {
+        await env.AI_USAGE.delete('WX_ACCESS_TOKEN');
+      } catch (e) {}
+    }
+    if (action === 'POST_MARKET') {
+      await runWeChatDailyPostMarketPublisher(env);
+    } else {
+      await runWeChatDailyAGVPublisher(env);
+    }
+  } else if (data === 'HEAL_RESET_TUNNEL') {
+    await sendTelegramMessage(env, chatId, '🔄 <b>【隧道自愈】</b> 正在重置隧道指针，等待阿里云心跳探针自愈同步...');
+    if (env && env.AI_USAGE) {
+      try {
+        await env.AI_USAGE.delete('WX_ACCESS_TOKEN');
+        await env.AI_USAGE.delete('AMR_RELAY_TUNNEL_URL');
+      } catch (e) {}
+    }
+  } else if (data === 'HEAL_DISMISS') {
+    await sendTelegramMessage(env, chatId, '👌 已忽略本次自愈提示。');
   }
+}
+
+// 🌟 核心创新：Gemini 驱动的微信发文异常自愈诊断与 Telegram 交互修复中枢
+async function triggerWeChatSelfHealingWorkflow(err, contextInfo, env) {
+  console.error(`[自愈中枢捕获异常] 阶段: ${contextInfo.stage}, 错误:`, err);
+  
+  if (!env.TG_BOT_TOKEN || !env.TG_CHAT_ID) return;
+
+  const nowStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  const errorMsg = err?.message || String(err);
+  
+  // 1. 构造发给 Gemini 的系统级自愈诊断 Prompt
+  const diagnosticPrompt = `你是一位拥有20年高并发与跨云通信经验的全球首席架构师。
+当前系统在执行【${contextInfo.type || '微信公众号自动化发布'}】任务时捕获到了异常，需要你结合开源工程实践给出精炼的根本原因分析、代码位置与一键自愈建议。
+
+【故障上下文环境】：
+- 业务类型：${contextInfo.type || '微信公众号自动化发布'}
+- 发生阶段：${contextInfo.stage || '未知阶段'}
+- 报错详情：${errorMsg}
+- 报错堆栈：${err?.stack ? err.stack.slice(0, 300) : '无详细堆栈'}
+- 代码仓库：doghelWang/stock-picker-ai (主文件: src/index.js)
+- 架构拓扑：Cloudflare Worker -> 阿里云固定IP (116.62.39.177) Cloudflare Tunnel 加密隧道 -> 微信公众平台
+
+【请以资深架构师口吻输出精简诊断报告（不要输出 Markdown 大标题或冗长客套，控制在 120 字以内）】：
+1. 💡 根本原因：用一两句话精练剖析问题本质；
+2. 🛠️ 自愈方案建议：指出是应「清除Token缓存并重试」、「重置隧道心跳」还是「检查微信素材库」。`;
+
+  let aiDiagnosis = "系统检测到微信中继链路发生异常，已启动自愈防御机制。";
+  try {
+    const aiRes = await generateAIAnalysis(diagnosticPrompt, env);
+    if (aiRes.text) {
+      aiDiagnosis = aiRes.text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    }
+  } catch (e) {
+    aiDiagnosis = `捕获异常: ${errorMsg}。建议清除 Token 缓存并重试。`;
+  }
+
+  // 2. 构造 Telegram 交互式自愈卡片 (带 Inline 动作按钮)
+  const tgCard = `⚠️ <b>#【微信公众号发文异常 · AI 智能自愈中枢】</b> ⚠️\n\n` +
+    `🕒 <b>发生时间：</b>${nowStr}\n` +
+    `🚨 <b>故障阶段：</b><code>${contextInfo.stage}</code>\n` +
+    `❌ <b>底层报错：</b><code>${errorMsg.slice(0, 160)}</code>\n\n` +
+    `🧠 <b>Gemini 3.7 根因诊断与方案：</b>\n${aiDiagnosis}\n\n` +
+    `📂 <b>相关源码：</b><a href="https://github.com/doghelWang/stock-picker-ai/blob/main/src/index.js">doghelWang/stock-picker-ai/src/index.js</a>\n\n` +
+    `👇 <b>请选择自愈处置动作：</b>`;
+
+  const inlineMarkup = {
+    inline_keyboard: [
+      [
+        { text: "⚡ 批准一键自愈 (重置Token并重试)", callback_data: `HEAL_RETRY:${contextInfo.actionCode || 'AGV'}` }
+      ],
+      [
+        { text: "🔄 重建隧道连接", callback_data: "HEAL_RESET_TUNNEL" },
+        { text: "❌ 暂不处理 (忽略)", callback_data: "HEAL_DISMISS" }
+      ]
+    ]
+  };
+
+  try {
+    await sendTelegramMessageWithInline(env, env.TG_CHAT_ID, tgCard, inlineMarkup);
+  } catch (e) {}
 }
 
 // 发送状态指示（如正在输入 typing）
@@ -1401,11 +1485,7 @@ async function runWeChatDailyPostMarketPublisher(env) {
     };
   } catch (err) {
     console.error('微信公众号自动发布异常:', err);
-    if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
-      try {
-        await sendTelegramMessage(env, env.TG_CHAT_ID, `⚠️ 微信公众号文章发布失败: ${err.message}`);
-      } catch (e) {}
-    }
+    await triggerWeChatSelfHealingWorkflow(err, { type: 'A股盘后投研复盘', stage: '微信草稿箱生成与推送', actionCode: 'POST_MARKET' }, env);
     return { success: false, error: err.message };
   }
 }
@@ -1704,11 +1784,7 @@ ${nextTeaserText}
     return { success: true, mediaId, title, day: topicItem.day, module: topicItem.module, durationMs: Date.now() - startTime };
   } catch (err) {
     console.error('微信 AGV 文章发布异常:', err);
-    if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
-      try {
-        await sendTelegramMessage(env, env.TG_CHAT_ID, `⚠️ 微信 AGV 专栏生成失败: ${err.message}`);
-      } catch (e) {}
-    }
+    await triggerWeChatSelfHealingWorkflow(err, { type: 'AMR移动机器人全栈专栏', stage: '微信草稿箱生成与推送', actionCode: 'AGV' }, env);
     return { success: false, error: err.message };
   }
 }
