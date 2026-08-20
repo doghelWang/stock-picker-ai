@@ -1320,10 +1320,10 @@ async function runWeChatDailyPostMarketPublisher(env) {
   }
 }
 
-// 5. 每日 08:00 微信公众号 AGV/AMR 智能移动机器人硬核科普长文全自动发布系统
+// 5. 每日 08:00 微信公众号 AGV/AMR 智能移动机器人硬核科普长文全自动发布系统 (20+ 专题自适应轮播，永不重复)
 const AGV_CURATED_TOPICS = [
   { title: "AGV入门：激光SLAM导航与建图原理解析", core: "2D/3D 激光雷达点云匹配、Cartographer 与 Gmapping 算法在自主移动机器人中的实战应用" },
-  { title: "AGV底盘运动学模型与差速全向轮控制", core: "两轮差速、四轮麦克纳姆轮、单舵轮与双舵轮运动学解算及轨迹规划算法" },
+  { title: "AGV底盘运动学与全向移动控制全解", core: "两轮差速、四轮麦克纳姆轮、单舵轮与双舵轮运动学解算及工业底盘选型指南" },
   { title: "AGV多传感器融合与四重安全避障体系", core: "激光避障雷达、3D ToF 深度相机、超声波测距与安全触边防撞四重冗余设计" },
   { title: "百台级集群：多机调度系统(RCS)与路径规划", core: "A* 算法、Dijkstra 与时间空间冲突避免 (MAPF) 在仓储物流自动化中的调度架构" },
   { title: "AGV电池管理(BMS)与自动在线对位充电技术", core: "磷酸铁锂电池充放电曲线、无线/伸缩电极自动充电桩与智能电池均衡维护策略" },
@@ -1331,7 +1331,17 @@ const AGV_CURATED_TOPICS = [
   { title: "具身智能与四足机器人在工业巡检中的结合", core: "四足机器人运动控制、楼梯地形自适应与变电站/化工厂智能防爆巡视" },
   { title: "关键核心零部件选型计算指南", core: "低压大功率直流伺服电机、精密行星减速机、驱动器与安全 PLC 选型计算" },
   { title: "工业移动机器人国际安全标准(ISO 3691-4)", core: "安全完整性等级 (SIL/PLd)、急停链路、速度监控与人机协作安全规范" },
-  { title: "二维码导航与视觉惯导(VIO)融合定位", core: "地面二维码定位纠偏、工业相机光流与 IMU 零速修正 (ZUPT) 提高定位精度" }
+  { title: "二维码导航与视觉惯导(VIO)融合定位", core: "地面二维码定位纠偏、工业相机光流与 IMU 零速修正 (ZUPT) 提高定位精度" },
+  { title: "反光板激光导航在高精度仓储中的实战应用", core: "高反射圆柱标靶三角定位解算、毫米级重复定位精度与工业叉车AGV应用" },
+  { title: "3D视觉SLAM与环境光照自适应建图", core: "RGB-D点云稠密重建、特征点提取与高动态复杂光照车间建图优化" },
+  { title: "AGV顶升机构与旋转台机械结构设计", core: "滚珠丝杠、剪叉式顶升、回转支承与液压升降系统在搬运机器人中的应用" },
+  { title: "多机器人交通管制与动态死锁解除机制", core: "时空拓扑图、交叉路口预约制、基于优先级的死锁检测与回退策略" },
+  { title: "AGV车载工控机与嵌入式控制器选型", core: "ARM Linux、x86 实时工控机、DSP 底层运动控制器与抗震宽温设计" },
+  { title: "5G专网与工业WiFi无缝漫游在AMR中的实践", core: "低时延工业无线网络、BSSID 快速漫游切换与防丢包冗余通信机制" },
+  { title: "托盘无人叉车(Forklift AGV)栈板识别与对位", core: "3D 视觉深度相机识别托盘插孔位姿、激光测距与位姿自适应纠偏" },
+  { title: "移动底盘悬挂减震与地面贴地性平衡设计", core: "独立悬挂、浮动弹簧减震与连杆机构在过坑洼减速带中的动力学响应" },
+  { title: "AGV惯性导航与卡尔曼滤波(EKF)数据融合", core: "高精度 MEMS IMU 陀螺仪积分、轮速计里程计与扩展卡尔曼滤波算法" },
+  { title: "半导体洁净室(Cleanroom) AMR特殊防护要求", core: "Class 100/10 洁净度、防静电(ESD)导电轮、无颗粒排放与防尘密封设计" }
 ];
 
 async function runWeChatDailyAGVPublisher(env) {
@@ -1339,7 +1349,19 @@ async function runWeChatDailyAGVPublisher(env) {
   const now = new Date();
   const beijingDate = new Date(now.getTime() + 8 * 3600 * 1000);
   const dayOfYear = Math.floor((beijingDate - new Date(beijingDate.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
-  const topicIdx = dayOfYear % AGV_CURATED_TOPICS.length;
+  
+  // 🌟 核心机制：通过 KV 维护持久化主题递增序号，确保每天绝对生成不同专题，绝不重复！
+  let topicIdx = dayOfYear % AGV_CURATED_TOPICS.length;
+  if (env && env.AI_USAGE) {
+    try {
+      const lastIdxStr = await env.AI_USAGE.get('AGV_TOPIC_LAST_INDEX');
+      if (lastIdxStr !== null) {
+        topicIdx = (parseInt(lastIdxStr, 10) + 1) % AGV_CURATED_TOPICS.length;
+      }
+      await env.AI_USAGE.put('AGV_TOPIC_LAST_INDEX', topicIdx.toString());
+    } catch (e) {}
+  }
+
   const currentTopic = AGV_CURATED_TOPICS[topicIdx];
   const nowStr = beijingDate.toLocaleString('zh-CN');
 
