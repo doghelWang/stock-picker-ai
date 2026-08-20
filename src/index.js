@@ -108,16 +108,13 @@ export default {
       }
     }
 
-    // 调试接口：专门测试 Google Gemini 深度内容生成能力
-    if (url.pathname === '/api/test-gemini') {
-      const apiKey = env.GEMINI_API_KEY ? env.GEMINI_API_KEY.trim() : '';
-      try {
-        const testPrompt = '请作为工业机器人架构师，深入分析两轮差速底盘的运动学模型与航向角解算，输出 300 字左右核心工程原理与控制公式。';
-        const res = await generateAIAnalysis(testPrompt, env);
-        return new Response(JSON.stringify(res, null, 2), { headers: { 'Content-Type': 'application/json' } });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: e.message, stack: e.stack }, null, 2), { status: 500, headers: { 'Content-Type': 'application/json' } });
-      }
+    // 触发并同步生成最新微信公众号草稿（含大模型完整长文）
+    if (url.pathname === '/api/generate-drafts') {
+      const agvRes = await runWeChatDailyAGVPublisher(env);
+      const postRes = await runWeChatDailyPostMarketPublisher(env);
+      return new Response(JSON.stringify({ agvResult: agvRes, postMarketResult: postRes }, null, 2), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+      });
     }
 
     // 手动测试/触发 15:05 每日复盘分析与系统优化报告 API
@@ -1967,7 +1964,7 @@ function detectActiveModelEngine(env) {
   };
 }
 
-// 统一 Google Gemini 多级阶梯分发与高可用生成器
+// 统一 Google Gemini 多级阶梯分发与高可用生成器（支持 45s 长超时与单模型双重试机制）
 async function generateAIAnalysis(prompt, env) {
   const apiKey = env.GEMINI_API_KEY ? env.GEMINI_API_KEY.trim() : '';
   if (!apiKey) {
@@ -1988,45 +1985,51 @@ async function generateAIAnalysis(prompt, env) {
 
   for (let i = 0; i < candidateModels.length; i++) {
     const model = candidateModels[i];
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const ctrl = new AbortController();
-      const tId = setTimeout(() => ctrl.abort(), 35000); // 35 秒充裕超时，保证长篇深度文章完整生成
+    // 单个模型最多尝试 2 次（应对偶发网络超时或抖动）
+    for (let retry = 1; retry <= 2; retry++) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const ctrl = new AbortController();
+        const tId = setTimeout(() => ctrl.abort(), 45000); // 45 秒充裕超时，保证长篇深度文章完整生成
 
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-goog-api-key': apiKey
-        },
-        signal: ctrl.signal,
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 4096
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-goog-api-key': apiKey
+          },
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 4096
+            }
+          })
+        });
+        clearTimeout(tId);
+
+        if (res.ok) {
+          const data = await res.json();
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && text.trim().length > 100) {
+            const tokenCount = data?.usageMetadata?.totalTokenCount || 2000;
+            await recordAIUsage(env, tokenCount, 2600);
+            await recordActiveModel(env, `Google Gemini (${model})`, i + 1, model);
+            return { text, engineName: `Google Gemini (${model})`, tokenCount };
           }
-        })
-      });
-      clearTimeout(tId);
-
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text && text.trim().length > 100) {
-          const tokenCount = data?.usageMetadata?.totalTokenCount || 2000;
-          await recordAIUsage(env, tokenCount, 2600);
-          await recordActiveModel(env, `Google Gemini (${model})`, i + 1, model);
-          return { text, engineName: `Google Gemini (${model})`, tokenCount };
+        } else {
+          const errText = await res.text();
+          lastError = `HTTP ${res.status}: ${errText.slice(0, 200)}`;
+          console.warn(`[Gemini 模型 ${model} 第 ${retry} 次调用失败]:`, lastError);
         }
-      } else {
-        const errText = await res.text();
-        lastError = `HTTP ${res.status}: ${errText.slice(0, 200)}`;
-        console.warn(`[Gemini 模型 ${model} 调用失败]:`, lastError);
+      } catch (e) {
+        lastError = e.message;
+        console.warn(`[Gemini 模型 ${model} 第 ${retry} 次异常]:`, e.message);
       }
-    } catch (e) {
-      lastError = e.message;
-      console.warn(`[Gemini 模型 ${model} 异常]:`, e.message);
+      if (retry < 2) {
+        await new Promise(r => setTimeout(r, 1500));
+      }
     }
   }
 
