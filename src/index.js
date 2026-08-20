@@ -515,7 +515,7 @@ ${newsContext}
       `🧭 <b>当前发布进度：</b>第 <b>${currentIdx}</b> 讲 / 已规划就绪 <b>${topics.length}</b> 讲\n` +
       `⚡ <b>前瞻机制：</b>每日发文时自动向后推演，始终保持未来 20 天的硬核技术专题储备！\n\n` +
       `${topicLines}\n\n` +
-      `<i>每天早间 08:00 自动将最新一讲长文推送至微信公众号草稿箱！</i>`;
+      `<i>每日 08:30 / 10:30 / 15:30 / 20:30 (每天4次连载) 自动将最新一讲长文推送至微信公众号草稿箱！</i>`;
 
     await sendTelegramMessageWithKeyboard(env, chatId, msg);
     return;
@@ -1361,7 +1361,7 @@ async function runWeChatDailyPostMarketPublisher(env) {
   }
 }
 
-// 5. 每日 08:00 微信公众号 AMR 智能移动机器人硬核科普长文全自动发布系统 (60讲体系化模块树 + 历史记忆链 + CF资源极致轻量化)
+// 5. 微信公众号 AMR 智能移动机器人硬核科普长文全自动发布系统 (每日 08:30 / 10:30 / 15:30 / 20:30 四次连载 + 66讲体系化模块树 + 历史记忆链 + CF资源极致轻量化)
 const AMR_SYSTEM_CURRICULUM = [
   // 【模块一：环境感知、SLAM建图与多源融合定位篇】(第 1~6 讲)
   { day: 1, module: "模块一：环境感知与高精定位篇", title: "AGV入门：2D激光雷达原理与点云扫描基础", core: "激光测距飞行时间(ToF)原理、三角测距对比、点云数据帧结构与工业选型" },
