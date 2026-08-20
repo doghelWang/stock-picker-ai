@@ -14,8 +14,14 @@ export default {
       return;
     }
 
-    // 1.15 每日 08:00 微信公众号 AGV/AMR 智能移动机器人硬核科普专栏全自动发布 (08:00-08:05)
-    if (bjHour === 8 && bjMin <= 5) {
+    // 1.15 每日 4 次微信公众号 AMR/AGV 硬核科普与开源生态专栏全自动发布 (08:30 / 10:30 / 15:30 / 20:30)
+    const isAmrPublishTime = (
+      (bjHour === 8 && bjMin >= 25 && bjMin <= 35) ||
+      (bjHour === 10 && bjMin >= 25 && bjMin <= 35) ||
+      (bjHour === 15 && bjMin >= 25 && bjMin <= 35) ||
+      (bjHour === 20 && bjMin >= 25 && bjMin <= 35)
+    );
+    if (isAmrPublishTime) {
       ctx.waitUntil(runWeChatDailyAGVPublisher(env));
       return;
     }
@@ -1435,7 +1441,15 @@ const AMR_SYSTEM_CURRICULUM = [
   { day: 57, module: "模块十：安全认证与量产出海篇", title: "功能安全系统设计(ISO 13849 PLd / SIL2)量化验证", core: "危险与风险评估(HARA)、平均危险失效时间(MTTFd)、诊断覆盖率(DC)与SISTEMA验证" },
   { day: 58, module: "模块十：安全认证与量产出海篇", title: "工业移动机器人标准化量产制造与下线(EOL)质检", core: "装配工艺卡(SOP)、激光几何标定台架、满载颠簸老化测试与整车出厂检验标准" },
   { day: 59, module: "模块十：安全认证与量产出海篇", title: "移动机器人全球化出海与海外本地化售后支持体系", core: "备品备件中心规划、远程故障诊断网关、多语言技术支持与海外服务闭环" },
-  { day: 60, module: "模块十：安全认证与量产出海篇", title: "【体系总结与展望】构建自主高柔性移动机器人新纪元", core: "60讲全栈知识体系大贯通、具身智能与工业制造融合趋势、中国移动机器人全球竞争力" }
+  { day: 60, module: "模块十：安全认证与量产出海篇", title: "【体系总结与展望】构建自主高柔性移动机器人新纪元", core: "60讲全栈知识体系大贯通、具身智能与工业制造融合趋势、中国移动机器人全球竞争力" },
+
+  // 【模块十一：顶级开源生态与二次开发实战篇】(第 61~66 讲)
+  { day: 61, module: "模块十一：顶级开源生态实战篇", title: "Open-RMF 异构多机集群调度与楼宇设施协同实战", core: "Open Robotics 官方架构、Fleet Adapter 开发、时空冲突避免算法与跨品牌 AGV 统一交通管制" },
+  { day: 62, module: "模块十一：顶级开源生态实战篇", title: "openTCS 工业级调度实战：拓扑路由与运单生命周期", core: "Fraunhofer IML 工业级调度引擎、Plant Overview 拓扑建模、自定义通信驱动适配与工位叫料闭环" },
+  { day: 63, module: "模块十一：顶级开源生态实战篇", title: "Nav2 (ROS 2 Navigation) 核心架构拆解与工业落地避坑", core: "BehaviorTree.CPP 行为树决策、Costmap 2D/3D 插件、Smac Planner 全局路径与 MPPI 局部轨迹跟踪" },
+  { day: 64, module: "模块十一：顶级开源生态实战篇", title: "Linorobot2 & micro-ROS 软硬件全栈底盘设计实战", core: "micro-ROS 实时 DDS 通信、ESP32 轮速编码器 PID 闭环、差速/麦轮硬件抽象与 URDF 仿真" },
+  { day: 65, module: "模块十一：顶级开源生态实战篇", title: "libVDA5050++ 协议库实战：工业 4.0 标准通信接口开发", core: "Fraunhofer 官方 C++ 协议解析器、MQTT 状态/指令 JSON 序列化、OrderStatus 报文与即插即用" },
+  { day: 66, module: "模块十一：顶级开源生态实战篇", title: "开源四足机器人 CHAMP 运动控制框架：全身动力学与步态规划", core: "CHAMP 四足逆运动学解算、摆动相轨迹生成、质心支撑多边形与 ROS 2 仿真" }
 ];
 
 // 🌟 核心函数：动态获取并向前递进刷新 AMR 专题列表 (极致轻量化设计，0 多余 API 调用，完全满足 CF 资源限制)
@@ -1451,7 +1465,7 @@ async function getAndRefreshAMRTopicsList(env, currentIndex) {
     } catch (e) {}
   }
 
-  // 若超出预置的 60 讲大纲，才触发极低频的轻量级后备延伸
+  // 若超出预置的大纲，才触发极低频的轻量级后备延伸
   const targetMinLength = currentIndex + 20;
   if (topics.length < targetMinLength) {
     for (let i = topics.length + 1; i <= targetMinLength; i++) {
@@ -1503,11 +1517,30 @@ async function runWeChatDailyAGVPublisher(env) {
 
   // 4. 计算下期预告与引申线索 (启下)
   const nextTopicItem = topics[currentIdx] || null;
-  const nextTeaserText = nextTopicItem ? `在明早 08:00 的第 ${nextTopicItem.day} 讲中，我们将进入【${nextTopicItem.module}】，深入剖析【${nextTopicItem.title}】（核心突破点：${nextTopicItem.core}）。` : '下期将进一步探索更高阶前沿技术。';
+  const nextTeaserText = nextTopicItem ? `在下期专栏连载中，我们将进入【${nextTopicItem.module}】，深入剖析【${nextTopicItem.title}】（核心突破点：${nextTopicItem.core}）。` : '下期将进一步探索更高阶前沿技术。';
+
+  // 5. 开源项目专项提示词智能分支
+  const isOpenSourceModule = topicItem.module.includes('开源') || topicItem.title.includes('Open-RMF') || topicItem.title.includes('openTCS') || topicItem.title.includes('Nav2') || topicItem.title.includes('Linorobot') || topicItem.title.includes('VDA5050') || topicItem.title.includes('CHAMP');
+
+  const structureRequirement = isOpenSourceModule ? `
+【开源项目专项源码级剖析要求】：
+- 🔍【一、项目全景与工程定位】：清晰阐述该开源项目在全栈移动机器人分层架构中的位置，解决传统自研中哪些致命痛点；
+- 🏗️【二、核心源码架构与关键设计模式】：详细拆解其代码目录结构、核心类/模块解耦（如 Fleet Adapter、Pluginlib、BehaviorTree 节点交互）、数据流与时序逻辑；
+- 🚀【三、工业级实战搭建与二次开发指南】：给出环境依赖、编译构建、关键参数 YAML/XML 配置、硬件接口对接的标准工程代码示例；
+- 🏭【四、商业落地优缺点对比与避坑指南】：客观剖析其在百台级压测、内存开销、协议扩展上的局限性，给出真实工业改造避坑法则；
+- 🧭【五、本讲小结与下期技术预告】：提炼 2~3 条该开源项目的工程选型黄金法则，并自然引出下一讲预告。
+` : `
+【标准化五段式工程排版要求】：
+- 💡【一、承上启下与工程背景】（回顾上一讲，阐明为什么在实际工程中必须引入本讲技术）
+- 📐【二、底层控制算法与数学原理拆解】（状态方程、矢量分解、算法伪代码/时序流程等深入剖析）
+- 🛠️【三、关键硬件交互与工程实现细节】（电机驱动器/传感器/控制器引脚与通信交互细节）
+- 🏭【四、典型工业产线落地与避坑指南】（结合半导体/汽车/锂电/电商等真实产线工程排错经验）
+- 🧭【五、本讲小结与下期技术预告】（提炼2~3条黄金工程法则，并自然引出下一期技术预告）
+`;
 
   try {
     const prompt = `你是一位拥有20年工业机器人与AGV/AMR全栈系统架构经验的全球首席技术导师。
-当前正在为工程师与研发团队撰写一套体系化、连续性、教材级的【AMR 智能移动机器人硬核工程技术专栏】。
+当前正在为工程师与研发团队撰写一套体系化、连续性、教材级的【AMR 智能移动机器人硬核工程技术专栏】（每天 08:30 / 10:30 / 15:30 / 20:30 四次高频连载更新）。
 
 【当前知识体系模块】：${topicItem.module} · 第 ${topicItem.day} 讲
 【今日核心课题】：${topicItem.title}
@@ -1515,18 +1548,13 @@ async function runWeChatDailyAGVPublisher(env) {
 
 ${prevContext}
 
-【明天预告与引申线索 (启下)】：
+【下期预告与引申线索 (启下)】：
 ${nextTeaserText}
 
 【写作与知识系统构建要求】：
 1. 体系性与连续性：必须有清晰的承上启下逻辑！在文章开头自然回顾上一讲的核心技术结论，并点明本讲在【${topicItem.module}】整机系统中的关键承接位置；在文章末尾自然抛出对下一讲的技术预告与思考题；
 2. 严谨工程深度：必须具备工业级技术水准，包含清晰的数学/控制原理、硬件交互逻辑、时序与接口、参数计算方法以及现场真实避坑经验；
-3. 标准化五段式工程排版：
-   - 💡【一、承上启下与工程背景】（回顾上一讲，阐明为什么在实际工程中必须引入本讲技术）
-   - 📐【二、底层控制算法与数学原理拆解】（状态方程、矢量分解、算法伪代码/时序流程等深入剖析）
-   - 🛠️【三、关键硬件交互与工程实现细节】（电机驱动器/传感器/控制器引脚与通信交互细节）
-   - 🏭【四、典型工业产线落地与避坑指南】（结合半导体/汽车/锂电/电商等真实产线工程排错经验）
-   - 🧭【五、本讲小结与下期技术预告】（提炼2~3条黄金工程法则，并自然引出下一期技术预告）
+3. ${structureRequirement}
 4. 输出格式：必须输出为原生标准的富文本 HTML 代码格式（使用干净的 section、div、h2、h3、p 标签，带有优雅的科技蓝/翡翠绿卡片背景、圆角、重点高亮等适合微信公众号阅读的排版），不要输出 Markdown。`;
 
     const aiRes = await generateAIAnalysis(prompt, env);
@@ -1543,14 +1571,14 @@ ${nextTeaserText}
   <div style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; padding: 20px 16px; border-radius: 12px; margin-bottom: 22px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
     <span style="background: rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 20px; font-size: 11px; letter-spacing: 1px;">${topicItem.module}</span>
     <h2 style="margin: 10px 0 6px 0; color: #ffffff; font-size: 19px; font-weight: 700;">第 ${topicItem.day} 讲 · ${topicItem.title}</h2>
-    <p style="margin: 0; font-size: 12px; color: #e0f2fe;">AMR 全栈移动机器人硬核工程师培养计划</p>
+    <p style="margin: 0; font-size: 12px; color: #e0f2fe;">AMR 全栈移动机器人硬核工程师培养计划 (每日 4 次连载更新)</p>
   </div>
 
   ${rawHtml}
   
   <div style="margin-top: 35px; padding: 16px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.6;">
     <p style="margin: 0 0 4px 0; font-weight: 700; color: #0284c7;">🤖【AMR 智能移动机器人技术专栏 · ${topicItem.module}】</p>
-    <p style="margin: 0;">每天早间 08:00 体系化更新，系统构建工业移动机器人、运动控制、SLAM 算法与具身智能全栈技术体系！</p>
+    <p style="margin: 0;">每天 08:30 / 10:30 / 15:30 / 20:30 体系化连载更新，系统构建工业移动机器人、运动控制、SLAM 算法与具身智能全栈技术体系！</p>
   </div>
 </section>
 `;
