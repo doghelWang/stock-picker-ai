@@ -1147,11 +1147,9 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
 // 🌟 微信公众号官方合规全自动复盘与草稿箱发布系统
 // ==========================================
 
-// 1. 获取并智能缓存微信公众号 access_token (优先通过阿里云固定 IP 116.62.39.177 中继，彻底终结动态 IP 白名单问题)
+// 1. 获取并智能缓存微信公众号 access_token (严格且唯一通过阿里云固定 IP 116.62.39.177 中继，彻底终结动态 IP 泄漏)
 async function getWeChatAccessToken(env) {
-  const appId = env?.WX_APPID;
-  const appSecret = env?.WX_APPSECRET;
-
+  // 1.1 优先检查 KV 缓存 (有效直接复用)
   if (env && env.AI_USAGE) {
     try {
       const cached = await env.AI_USAGE.get('WX_ACCESS_TOKEN');
@@ -1159,65 +1157,79 @@ async function getWeChatAccessToken(env) {
     } catch (e) {}
   }
 
-  // 1.1 优先请求从 KV 动态自愈注册的 Cloudflare 隧道 (完全穿透至阿里云 116.62.39.177 且免除 1003 限制)
-  const tunnelCandidates = [];
+  // 1.2 动态读取阿里云固定 IP 加密隧道并带重试拉取
+  let dynamicUrl = null;
   if (env && env.AI_USAGE) {
     try {
-      const dynamicUrl = await env.AI_USAGE.get('AMR_RELAY_TUNNEL_URL');
-      if (dynamicUrl) {
-        tunnelCandidates.push(`${dynamicUrl.replace(/\/+$/, '')}/api/wechat/token?key=amr_wechat_relay_2026_secure`);
-      }
+      dynamicUrl = await env.AI_USAGE.get('AMR_RELAY_TUNNEL_URL');
     } catch (e) {}
   }
 
-  for (const relayUrl of tunnelCandidates) {
-    try {
-      const relayRes = await fetch(relayUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0' }
-      });
-      if (relayRes.ok) {
-        const relayData = await relayRes.json();
-        if (relayData.success && relayData.access_token) {
-          const token = relayData.access_token;
-          if (env && env.AI_USAGE && token) {
-            try {
-              await env.AI_USAGE.put('WX_ACCESS_TOKEN', token, { expirationTtl: 7000 });
-            } catch (e) {}
+  if (dynamicUrl) {
+    const relayUrl = `${dynamicUrl.replace(/\/+$/, '')}/api/wechat/token?key=amr_wechat_relay_2026_secure`;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const relayRes = await fetch(relayUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        if (relayRes.ok) {
+          const relayData = await relayRes.json();
+          if (relayData.success && relayData.access_token) {
+            const token = relayData.access_token;
+            if (env && env.AI_USAGE && token) {
+              try {
+                await env.AI_USAGE.put('WX_ACCESS_TOKEN', token, { expirationTtl: 6800 });
+              } catch (e) {}
+            }
+            return token;
           }
-          return token;
-        } else if (relayData.error) {
-          console.warn('[中继提示] 阿里云隧道中继返回:', relayData.error);
         }
+      } catch (err) {
+        console.warn(`[中继提示] 第 ${attempt} 次请求阿里云中继异常:`, err.message);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 1000));
       }
-    } catch (relayErr) {
-      console.warn('[中继提示] 阿里云隧道网络连接异常:', relayErr.message);
     }
   }
 
-  // 1.2 备用回退：直接请求微信官方接口
-  if (!appId || !appSecret) {
-    throw new Error('未配置 WX_APPID 或 WX_APPSECRET 加密环境变量，且固定 IP 中继未能获取 Token');
-  }
+  // 1.3 严格保护策略：严禁从 Cloudflare Worker 直接发起 token 请求！
+  // 避免向微信暴露动态 IP 导致 40164 报错拦截，保护白名单纯洁性
+  throw new Error('【中继安全拦截】阿里云固定 IP (116.62.39.177) 隧道未连接或未就绪。为保护微信公众号免受动态 IP 白名单报错拦截，已主动阻止直连。');
+}
 
-  const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  if (!res.ok) {
-    throw new Error(`请求微信Token失败: HTTP ${res.status}`);
-  }
-
-  const data = await res.json();
-  if (data.errcode && data.errcode !== 0) {
-    throw new Error(`微信接口授权错误 [${data.errcode}]: ${data.errmsg}`);
-  }
-
-  const token = data.access_token;
-  if (env && env.AI_USAGE && token) {
+// 1.4 统一微信 API 调用器 (优先通过阿里云 116.62.39.177 专属隧道代理转发)
+async function callWeChatAPI(env, apiPath, options = {}) {
+  let dynamicUrl = null;
+  if (env && env.AI_USAGE) {
     try {
-      // 缓存 7000 秒 (官方有效期 7200 秒)
-      await env.AI_USAGE.put('WX_ACCESS_TOKEN', token, { expirationTtl: 7000 });
+      dynamicUrl = await env.AI_USAGE.get('AMR_RELAY_TUNNEL_URL');
     } catch (e) {}
   }
-  return token;
+
+  // 优先通过阿里云中继转发
+  if (dynamicUrl) {
+    try {
+      const proxyUrl = `${dynamicUrl.replace(/\/+$/, '')}/api/wechat/proxy?key=amr_wechat_relay_2026_secure&target=${encodeURIComponent(apiPath)}`;
+      const res = await fetch(proxyUrl, {
+        method: options.method || 'GET',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Cloudflare Edge)' },
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('[微信API中继代理异常，回退直连]:', e.message);
+    }
+  }
+
+  // 备用直连 (仅用于 draft/add 或素材读取，Token 获取严禁直连)
+  const directUrl = `https://api.weixin.qq.com/${apiPath.replace(/^\/+/, '')}`;
+  const res = await fetch(directUrl, {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  return await res.json();
 }
 
 // 2. 微信金融合规与反敏感词脱敏清洗器 (杜绝荐股/带单/夸大承诺等封号风险)
@@ -1293,14 +1305,11 @@ ${newsSummary}
 async function getWeChatThumbMediaId(accessToken, env) {
   if (env?.WX_THUMB_MEDIA_ID) return env.WX_THUMB_MEDIA_ID;
   try {
-    const url = `https://api.weixin.qq.com/cgi-bin/material/batchget_material?access_token=${accessToken}`;
-    const res = await fetch(url, {
+    const data = await callWeChatAPI(env, `cgi-bin/material/batchget_material?access_token=${accessToken}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'image', offset: 0, count: 1 })
+      body: { type: 'image', offset: 0, count: 1 }
     });
-    const data = await res.json();
-    if (data.item && data.item.length > 0) {
+    if (data && data.item && data.item.length > 0) {
       return data.item[0].media_id;
     }
   } catch (e) {}
@@ -1329,10 +1338,9 @@ async function runWeChatDailyPostMarketPublisher(env) {
     const title = `A股全息量化复盘：市场动量与客观走势跟踪(${todayStr})`;
     const digest = `今日全市场行情深度剖析、100支动态精选池龙头量价点评与客观趋势梳理。`;
 
-    // 4.4 获取微信 access_token 并提交至草稿箱 API
+    // 4.4 获取微信 access_token 并提交至草稿箱 API (经由 116.62.39.177 转发)
     const accessToken = await getWeChatAccessToken(env);
     const thumbMediaId = await getWeChatThumbMediaId(accessToken, env);
-    const draftUrl = `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`;
     
     const draftPayload = {
       articles: [
@@ -1348,13 +1356,11 @@ async function runWeChatDailyPostMarketPublisher(env) {
       ]
     };
 
-    const draftRes = await fetch(draftUrl, {
+    const draftData = await callWeChatAPI(env, `cgi-bin/draft/add?access_token=${accessToken}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draftPayload)
+      body: draftPayload
     });
 
-    const draftData = await draftRes.json();
     if (draftData.errcode && draftData.errcode !== 0) {
       throw new Error(`微信草稿创建失败 [${draftData.errcode}]: ${draftData.errmsg}`);
     }
@@ -1646,13 +1652,11 @@ ${nextTeaserText}
       ]
     };
 
-    const draftRes = await fetch(draftUrl, {
+    const draftData = await callWeChatAPI(env, `cgi-bin/draft/add?access_token=${accessToken}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draftPayload)
+      body: draftPayload
     });
 
-    const draftData = await draftRes.json();
     if (draftData.errcode && draftData.errcode !== 0) {
       throw new Error(`微信草稿创建失败 [${draftData.errcode}]: ${draftData.errmsg}`);
     }
