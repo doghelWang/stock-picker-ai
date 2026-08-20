@@ -108,24 +108,16 @@ export default {
       }
     }
 
-    // 调试接口：专门测试 Cloudflare Worker 到阿里云固定 IP 中继的连通性
-    if (url.pathname === '/api/test-relay') {
-      let registeredUrl = 'None';
-      if (env && env.AI_USAGE) {
-        try {
-          registeredUrl = (await env.AI_USAGE.get('AMR_RELAY_TUNNEL_URL')) || 'None';
-        } catch (e) {}
+    // 调试接口：专门测试 Google Gemini 深度内容生成能力
+    if (url.pathname === '/api/test-gemini') {
+      const apiKey = env.GEMINI_API_KEY ? env.GEMINI_API_KEY.trim() : '';
+      try {
+        const testPrompt = '请作为工业机器人架构师，深入分析两轮差速底盘的运动学模型与航向角解算，输出 300 字左右核心工程原理与控制公式。';
+        const res = await generateAIAnalysis(testPrompt, env);
+        return new Response(JSON.stringify(res, null, 2), { headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message, stack: e.stack }, null, 2), { status: 500, headers: { 'Content-Type': 'application/json' } });
       }
-      let relayResult = null;
-      if (registeredUrl !== 'None') {
-        try {
-          const resp = await fetch(`${registeredUrl.replace(/\/+$/, '')}/api/wechat/token?key=amr_wechat_relay_2026_secure`);
-          relayResult = await resp.json();
-        } catch (e) {
-          relayResult = { error: e.message };
-        }
-      }
-      return new Response(JSON.stringify({ registeredUrl, relayResult }, null, 2), { headers: { 'Content-Type': 'application/json' } });
     }
 
     // 手动测试/触发 15:05 每日复盘分析与系统优化报告 API
@@ -1985,10 +1977,11 @@ async function generateAIAnalysis(prompt, env) {
   // 优先级模型列表 (全部基于 Google 官方现行标准模型)
   const candidateModels = [
     env.GEMINI_MODEL || 'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
+    'gemini-3.7-flash',
+    'gemini-3.5-flash',
+    'gemini-2.5-flash-lite',
     'gemini-2.5-pro',
-    'gemini-1.5-pro'
+    'gemini-flash-latest'
   ];
 
   let lastError = null;
