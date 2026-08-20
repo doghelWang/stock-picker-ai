@@ -1975,63 +1975,31 @@ function detectActiveModelEngine(env) {
   };
 }
 
-// 统一 Google Gemini 五级阶梯分发与无感降级熔断器 (3.7 -> 3.6 -> 3 -> 3.5 Lite -> 3.1 Lite)
+// 统一 Google Gemini 多级阶梯分发与高可用生成器
 async function generateAIAnalysis(prompt, env) {
   const apiKey = env.GEMINI_API_KEY ? env.GEMINI_API_KEY.trim() : '';
   if (!apiKey) {
-    return {
-      text: '【系统运行平稳】当前已基于经典量化多因子评分矩阵生成策略。',
-      engineName: '经典多因子规则引擎'
-    };
+    throw new Error('未配置 GEMINI_API_KEY，无法调用大模型生成深度内容。');
   }
 
-  // 🥇【第一梯队：Google Gemini 3.7 Flash 官方旗舰】(配额 20 RPD)
-  try {
-    const primaryModel = env.GEMINI_MODEL || 'gemini-flash-latest';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${primaryModel}:generateContent?key=${apiKey}`;
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-goog-api-key': apiKey
-      },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2500,
-          thinkingConfig: { thinkingBudget: 0 }
-        }
-      })
-    });
-    clearTimeout(tId);
+  // 优先级模型列表 (全部基于 Google 官方现行标准模型)
+  const candidateModels = [
+    env.GEMINI_MODEL || 'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-2.5-pro',
+    'gemini-1.5-pro'
+  ];
 
-    if (res.ok) {
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) {
-        const tokenCount = data?.usageMetadata?.totalTokenCount || 1000;
-        await recordAIUsage(env, tokenCount, 2600);
-        await recordActiveModel(env, 'Google Gemini 3.7 Flash 官方旗舰', 1, primaryModel);
-        return { text, engineName: `Google Gemini 3.7 Flash (${data?.modelVersion || primaryModel})`, tokenCount };
-      }
-    } else {
-      console.warn(`[Gemini 3.7 配额告警] 响应状态 ${res.status}，自动降级至第二梯队 (Gemini 3.6)...`);
-    }
-  } catch (e) {
-    console.warn('[Gemini 3.7 异常]，自动降级至第二梯队 (Gemini 3.6):', e.message);
-  }
+  let lastError = null;
 
-  // 🥈【第二梯队：Google Gemini 3.6 Flash】(配额 20 RPD)
-  try {
-    const fallback36 = ['gemini-3.6-flash', 'gemini-2.5-flash'];
-    for (const fModel of fallback36) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
+  for (let i = 0; i < candidateModels.length; i++) {
+    const model = candidateModels[i];
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const ctrl = new AbortController();
-      const tId = setTimeout(() => ctrl.abort(), 4000);
+      const tId = setTimeout(() => ctrl.abort(), 35000); // 35 秒充裕超时，保证长篇深度文章完整生成
+
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -2043,8 +2011,7 @@ async function generateAIAnalysis(prompt, env) {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 2500,
-            thinkingConfig: { thinkingBudget: 0 }
+            maxOutputTokens: 4096
           }
         })
       });
@@ -2053,143 +2020,24 @@ async function generateAIAnalysis(prompt, env) {
       if (res.ok) {
         const data = await res.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          const tokenCount = data?.usageMetadata?.totalTokenCount || 1000;
+        if (text && text.trim().length > 100) {
+          const tokenCount = data?.usageMetadata?.totalTokenCount || 2000;
           await recordAIUsage(env, tokenCount, 2600);
-          await recordActiveModel(env, 'Google Gemini 3.6 Flash (二级降级)', 2, fModel);
-          return { text, engineName: `Google Gemini 3.6 Flash (${fModel})`, tokenCount };
+          await recordActiveModel(env, `Google Gemini (${model})`, i + 1, model);
+          return { text, engineName: `Google Gemini (${model})`, tokenCount };
         }
+      } else {
+        const errText = await res.text();
+        lastError = `HTTP ${res.status}: ${errText.slice(0, 200)}`;
+        console.warn(`[Gemini 模型 ${model} 调用失败]:`, lastError);
       }
+    } catch (e) {
+      lastError = e.message;
+      console.warn(`[Gemini 模型 ${model} 异常]:`, e.message);
     }
-    console.warn('[Gemini 3.6 配额告警] 自动降级至第三梯队 (Gemini 3 Flash)...');
-  } catch (e) {
-    console.warn('[Gemini 3.6 降级异常]:', e.message);
   }
 
-  // 🥉【第三梯队：Google Gemini 3 Flash】(配额 20 RPD)
-  try {
-    const fallback30 = ['gemini-3.0-flash', 'gemini-3-flash', 'gemini-2.0-flash'];
-    for (const fModel of fallback30) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
-      const ctrl = new AbortController();
-      const tId = setTimeout(() => ctrl.abort(), 4000);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-goog-api-key': apiKey
-        },
-        signal: ctrl.signal,
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2500,
-            thinkingConfig: { thinkingBudget: 0 }
-          }
-        })
-      });
-      clearTimeout(tId);
-
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          const tokenCount = data?.usageMetadata?.totalTokenCount || 1000;
-          await recordAIUsage(env, tokenCount, 2600);
-          await recordActiveModel(env, 'Google Gemini 3 Flash (三级降级)', 3, fModel);
-          return { text, engineName: `Google Gemini 3 Flash (${fModel})`, tokenCount };
-        }
-      }
-    }
-    console.warn('[Gemini 3 Flash 配额告警] 自动降级至第四梯队 (Gemini 3.5 Flash Lite)...');
-  } catch (e) {
-    console.warn('[Gemini 3 Flash 降级异常]:', e.message);
-  }
-
-  // 🔹【第四梯队：Google Gemini 3.5 Flash Lite】(海量配额 500 RPD)
-  try {
-    const fallback35Lite = ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'gemini-flash-lite-latest'];
-    for (const fModel of fallback35Lite) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
-      const ctrl = new AbortController();
-      const tId = setTimeout(() => ctrl.abort(), 4000);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-goog-api-key': apiKey
-        },
-        signal: ctrl.signal,
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2500
-          }
-        })
-      });
-      clearTimeout(tId);
-
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          const tokenCount = data?.usageMetadata?.totalTokenCount || 800;
-          await recordAIUsage(env, tokenCount, 2600);
-          await recordActiveModel(env, 'Google Gemini 3.5 Flash Lite (四级降级)', 4, fModel);
-          return { text, engineName: `Google Gemini 3.5 Flash Lite (${fModel})`, tokenCount };
-        }
-      }
-    }
-    console.warn('[Gemini 3.5 Flash Lite 配额告警] 自动降级至第五梯队 (Gemini 3.1 Flash Lite)...');
-  } catch (e) {
-    console.warn('[Gemini 3.5 Flash Lite 降级异常]:', e.message);
-  }
-
-  // 🟣【第五梯队：Google Gemini 3.1 Flash Lite 终极海量兜底】(海量配额 500 RPD)
-  try {
-    const fallback31Lite = ['gemini-3.1-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-8b', 'gemini-1.5-flash'];
-    for (const fModel of fallback31Lite) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${fModel}:generateContent?key=${apiKey}`;
-      const ctrl = new AbortController();
-      const tId = setTimeout(() => ctrl.abort(), 4000);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-goog-api-key': apiKey
-        },
-        signal: ctrl.signal,
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2000
-          }
-        })
-      });
-      clearTimeout(tId);
-
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          const tokenCount = data?.usageMetadata?.totalTokenCount || 800;
-          await recordAIUsage(env, tokenCount, 2600);
-          await recordActiveModel(env, 'Google Gemini 3.1 Flash Lite (五级终极兜底)', 5, fModel);
-          return { text, engineName: `Google Gemini 3.1 Flash Lite (${fModel})`, tokenCount };
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[Gemini 3.1 Flash Lite 异常]:', e.message);
-  }
-
-  return {
-    text: '【系统运行平稳】当前已基于经典量化多因子评分矩阵生成策略。',
-    engineName: '经典多因子规则引擎'
-  };
+  throw new Error(`所有 Gemini 大模型均未能生成有效内容: ${lastError}`);
 }
 
 // 核心流程：量化漏斗 -> 股价概率预测 -> 买卖点生成 -> 自动买入模拟盘 -> Telegram 实时通知
