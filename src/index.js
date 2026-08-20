@@ -108,11 +108,20 @@ export default {
       }
     }
 
-    // 触发并同步生成最新微信公众号草稿（含大模型完整长文）
-    if (url.pathname === '/api/generate-drafts') {
-      const agvRes = await runWeChatDailyAGVPublisher(env);
-      const postRes = await runWeChatDailyPostMarketPublisher(env);
-      return new Response(JSON.stringify({ agvResult: agvRes, postMarketResult: postRes }, null, 2), {
+    // 批量生成指定的 AMR 体系化专栏讲座并推送至草稿箱 (补齐历史或重发)
+    if (url.pathname === '/api/generate-amr-lectures') {
+      const daysParam = url.searchParams.get('days') || '1,2,3';
+      const days = daysParam.split(',').map(d => parseInt(d.trim(), 10)).filter(d => !isNaN(d));
+      const results = [];
+      for (const day of days) {
+        try {
+          const res = await runWeChatDailyAGVPublisher(env, day);
+          results.push({ day, res });
+        } catch (e) {
+          results.push({ day, error: e.message });
+        }
+      }
+      return new Response(JSON.stringify({ results }, null, 2), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
       });
     }
@@ -1609,15 +1618,17 @@ async function getAndRefreshAMRTopicsList(env, currentIndex) {
   return topics;
 }
 
-async function runWeChatDailyAGVPublisher(env) {
+async function runWeChatDailyAGVPublisher(env, targetDay = null) {
   const startTime = Date.now();
   const now = new Date();
   const beijingDate = new Date(now.getTime() + 8 * 3600 * 1000);
   const nowStr = beijingDate.toLocaleString('zh-CN');
 
-  // 1. 获取当前发布进度索引
+  // 1. 获取当前发布进度索引 (支持指定目标天数)
   let currentIdx = 1;
-  if (env && env.AI_USAGE) {
+  if (targetDay !== null && Number.isInteger(targetDay)) {
+    currentIdx = targetDay;
+  } else if (env && env.AI_USAGE) {
     try {
       const stored = await env.AI_USAGE.get('AMR_TOPIC_CURRENT_INDEX');
       if (stored) currentIdx = parseInt(stored, 10);
@@ -1636,12 +1647,12 @@ async function runWeChatDailyAGVPublisher(env) {
     } catch (e) {}
   }
 
-  const prevContext = historyMemory ? `
+  const prevContext = (historyMemory && historyMemory.day === currentIdx - 1) ? `
 【历史上下文记忆 (承上)】：
 上一讲为第 ${historyMemory.day} 讲【${historyMemory.title}】，属于【${historyMemory.module}】。
 上一讲核心工程结论：${historyMemory.core}。
 上一讲给读者留下的技术引申点：${historyMemory.nextTeaser || '探索更深层控制机制'}。
-` : `【历史上下文记忆】：这是本体系化专栏的系统性开篇教程。`;
+` : `【历史上下文记忆】：这是本体系化专栏的系统性开篇推进教程。`;
 
   // 4. 计算下期预告与引申线索 (启下)
   const nextTopicItem = topics[currentIdx] || null;
@@ -1683,7 +1694,8 @@ ${nextTeaserText}
 1. 体系性与连续性：必须有清晰的承上启下逻辑！在文章开头自然回顾上一讲的核心技术结论，并点明本讲在【${topicItem.module}】整机系统中的关键承接位置；在文章末尾自然抛出对下一讲的技术预告与思考题；
 2. 严谨工程深度：必须具备工业级技术水准，包含清晰的数学/控制原理、硬件交互逻辑、时序与接口、参数计算方法以及现场真实避坑经验；
 3. ${structureRequirement}
-4. 输出格式：必须输出为原生标准的富文本 HTML 代码格式（使用干净的 section、div、h2、h3、p 标签，带有优雅的科技蓝/翡翠绿卡片背景、圆角、重点高亮等适合微信公众号阅读的排版），不要输出 Markdown。`;
+4. 输出格式：必须输出为原生标准的富文本 HTML 代码格式（使用干净的 section、div、h2、h3、p 标签，带有优雅的科技蓝/翡翠绿卡片背景、圆角、重点高亮等适合微信公众号阅读的排版），不要输出 Markdown；
+5. 【完整性保证与绝对不可截断】：必须一口气输出全部五大章节完整长文（篇幅 1500~2500 字），写完【五、本讲小结与下期技术预告】后正常闭合 HTML 标签，绝对不能提前截断！`;
 
     const aiRes = await generateAIAnalysis(prompt, env);
     let rawHtml = (aiRes.text || '')
@@ -1983,7 +1995,7 @@ function detectActiveModelEngine(env) {
   };
 }
 
-// 统一 Google Gemini 多级阶梯分发与高可用生成器（支持 45s 长超时与单模型双重试机制）
+// 统一 Google Gemini 多级阶梯分发与高可用生成器（支持 60s 长超时、8192 Token 完整输出与单模型双重试机制）
 async function generateAIAnalysis(prompt, env) {
   const apiKey = env.GEMINI_API_KEY ? env.GEMINI_API_KEY.trim() : '';
   if (!apiKey) {
@@ -2009,7 +2021,7 @@ async function generateAIAnalysis(prompt, env) {
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
         const ctrl = new AbortController();
-        const tId = setTimeout(() => ctrl.abort(), 45000); // 45 秒充裕超时，保证长篇深度文章完整生成
+        const tId = setTimeout(() => ctrl.abort(), 60000); // 60 秒充裕超时，保证大模型从容输出 8192 Token 完整教材长文
 
         const res = await fetch(url, {
           method: 'POST',
@@ -2022,7 +2034,7 @@ async function generateAIAnalysis(prompt, env) {
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               temperature: 0.7,
-              maxOutputTokens: 4096
+              maxOutputTokens: 8192
             }
           })
         });
@@ -2030,9 +2042,10 @@ async function generateAIAnalysis(prompt, env) {
 
         if (res.ok) {
           const data = await res.json();
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          const candidate = data?.candidates?.[0];
+          const text = candidate?.content?.parts?.[0]?.text;
           if (text && text.trim().length > 100) {
-            const tokenCount = data?.usageMetadata?.totalTokenCount || 2000;
+            const tokenCount = data?.usageMetadata?.totalTokenCount || 3500;
             await recordAIUsage(env, tokenCount, 2600);
             await recordActiveModel(env, `Google Gemini (${model})`, i + 1, model);
             return { text, engineName: `Google Gemini (${model})`, tokenCount };
