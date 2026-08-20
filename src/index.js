@@ -1068,20 +1068,50 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
 // 🌟 微信公众号官方合规全自动复盘与草稿箱发布系统
 // ==========================================
 
-// 1. 获取并智能缓存微信公众号 access_token (带 KV 自动续期，严格通过 Cloudflare Secret 加密存取)
+// 1. 获取并智能缓存微信公众号 access_token (优先通过阿里云固定 IP 116.62.39.177 中继，彻底终结动态 IP 白名单问题)
 async function getWeChatAccessToken(env) {
   const appId = env?.WX_APPID;
   const appSecret = env?.WX_APPSECRET;
-
-  if (!appId || !appSecret) {
-    throw new Error('未配置 WX_APPID 或 WX_APPSECRET 加密环境变量');
-  }
 
   if (env && env.AI_USAGE) {
     try {
       const cached = await env.AI_USAGE.get('WX_ACCESS_TOKEN');
       if (cached) return cached;
     } catch (e) {}
+  }
+
+  // 1.1 优先请求固定 IP (116.62.39.177) 阿里云 Token 中继微服务
+  const relayUrls = [
+    'http://116.62.39.177:8080/api/wechat/token?key=amr_wechat_relay_2026_secure'
+  ];
+
+  for (const relayUrl of relayUrls) {
+    try {
+      const relayRes = await fetch(relayUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+      if (relayRes.ok) {
+        const relayData = await relayRes.json();
+        if (relayData.success && relayData.access_token) {
+          const token = relayData.access_token;
+          if (env && env.AI_USAGE && token) {
+            try {
+              await env.AI_USAGE.put('WX_ACCESS_TOKEN', token, { expirationTtl: 7000 });
+            } catch (e) {}
+          }
+          return token;
+        } else if (relayData.error) {
+          console.warn('[中继提示] 阿里云固定IP中继返回:', relayData.error);
+        }
+      }
+    } catch (relayErr) {
+      console.warn('[中继提示] 阿里云中继网络连接异常:', relayErr.message);
+    }
+  }
+
+  // 1.2 备用回退：直接请求微信官方接口
+  if (!appId || !appSecret) {
+    throw new Error('未配置 WX_APPID 或 WX_APPSECRET 加密环境变量，且固定 IP 中继未能获取 Token');
   }
 
   const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`;
