@@ -1080,8 +1080,9 @@ async function getWeChatAccessToken(env) {
     } catch (e) {}
   }
 
-  // 1.1 优先请求固定 IP (116.62.39.177) 阿里云 Token 中继微服务
+  // 1.1 优先请求固定 IP (116.62.39.177) 阿里云 Token 中继微服务 (端口 80 与 8080 双通道容灾)
   const relayUrls = [
+    'http://116.62.39.177/api/wechat/token?key=amr_wechat_relay_2026_secure',
     'http://116.62.39.177:8080/api/wechat/token?key=amr_wechat_relay_2026_secure'
   ];
 
