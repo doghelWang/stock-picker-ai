@@ -90,6 +90,44 @@ export default {
       return new Response('OK');
     }
 
+    // 阿里云中继隧道自动心跳与动态 URL 注册接口
+    if (url.pathname === '/api/relay-register') {
+      const key = url.searchParams.get('key');
+      if (key !== 'amr_wechat_relay_2026_secure') {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 403 });
+      }
+      try {
+        const body = await request.json();
+        if (body?.tunnel_url && env && env.AI_USAGE) {
+          await env.AI_USAGE.put('AMR_RELAY_TUNNEL_URL', body.tunnel_url);
+          console.log('✅ 成功注册/更新阿里云中继隧道 URL:', body.tunnel_url);
+          return new Response(JSON.stringify({ success: true, registered: body.tunnel_url }), { headers: { 'Content-Type': 'application/json' } });
+        }
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 400 });
+      }
+    }
+
+    // 调试接口：专门测试 Cloudflare Worker 到阿里云固定 IP 中继的连通性
+    if (url.pathname === '/api/test-relay') {
+      let registeredUrl = 'None';
+      if (env && env.AI_USAGE) {
+        try {
+          registeredUrl = (await env.AI_USAGE.get('AMR_RELAY_TUNNEL_URL')) || 'None';
+        } catch (e) {}
+      }
+      let relayResult = null;
+      if (registeredUrl !== 'None') {
+        try {
+          const resp = await fetch(`${registeredUrl.replace(/\/+$/, '')}/api/wechat/token?key=amr_wechat_relay_2026_secure`);
+          relayResult = await resp.json();
+        } catch (e) {
+          relayResult = { error: e.message };
+        }
+      }
+      return new Response(JSON.stringify({ registeredUrl, relayResult }, null, 2), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     // 手动测试/触发 15:05 每日复盘分析与系统优化报告 API
     if (url.pathname === '/api/review/daily') {
       const result = await runDailyPostMarketAttribution(env);
@@ -1121,13 +1159,18 @@ async function getWeChatAccessToken(env) {
     } catch (e) {}
   }
 
-  // 1.1 优先请求固定 IP (116.62.39.177) 阿里云 Token 中继微服务 (端口 80 与 8080 双通道容灾)
-  const relayUrls = [
-    'http://116.62.39.177/api/wechat/token?key=amr_wechat_relay_2026_secure',
-    'http://116.62.39.177:8080/api/wechat/token?key=amr_wechat_relay_2026_secure'
-  ];
+  // 1.1 优先请求从 KV 动态自愈注册的 Cloudflare 隧道 (完全穿透至阿里云 116.62.39.177 且免除 1003 限制)
+  const tunnelCandidates = [];
+  if (env && env.AI_USAGE) {
+    try {
+      const dynamicUrl = await env.AI_USAGE.get('AMR_RELAY_TUNNEL_URL');
+      if (dynamicUrl) {
+        tunnelCandidates.push(`${dynamicUrl.replace(/\/+$/, '')}/api/wechat/token?key=amr_wechat_relay_2026_secure`);
+      }
+    } catch (e) {}
+  }
 
-  for (const relayUrl of relayUrls) {
+  for (const relayUrl of tunnelCandidates) {
     try {
       const relayRes = await fetch(relayUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -1143,11 +1186,11 @@ async function getWeChatAccessToken(env) {
           }
           return token;
         } else if (relayData.error) {
-          console.warn('[中继提示] 阿里云固定IP中继返回:', relayData.error);
+          console.warn('[中继提示] 阿里云隧道中继返回:', relayData.error);
         }
       }
     } catch (relayErr) {
-      console.warn('[中继提示] 阿里云中继网络连接异常:', relayErr.message);
+      console.warn('[中继提示] 阿里云隧道网络连接异常:', relayErr.message);
     }
   }
 
