@@ -481,6 +481,40 @@ ${newsContext}
     return;
   }
 
+  // 3.10 指令：/topics 或精确点击 "📋 AMR专题大纲"
+  if (text === '/topics' || text === '📋 AMR专题大纲' || text.toLowerCase() === 'topics') {
+    sendTelegramChatAction(env, chatId, 'typing').catch(() => {});
+    let currentIdx = 1;
+    if (env && env.AI_USAGE) {
+      try {
+        const storedIdx = await env.AI_USAGE.get('AMR_TOPIC_CURRENT_INDEX');
+        if (storedIdx) currentIdx = parseInt(storedIdx, 10);
+      } catch (e) {}
+    }
+    const topics = await getAndRefreshAMRTopicsList(env, currentIdx);
+    const nowStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+
+    const topicLines = topics.slice(0, currentIdx + 19).map(t => {
+      if (t.day < currentIdx) {
+        return `✅ <b>第${t.day.toString().padStart(2, '0')}讲：</b>${t.title} <i>(已发布)</i>`;
+      } else if (t.day === currentIdx) {
+        return `🔥 <b>第${t.day.toString().padStart(2, '0')}讲：${t.title}</b> <i>(今日主推)</i>\n   └ 核心：${t.core}`;
+      } else {
+        return `⏳ <b>第${t.day.toString().padStart(2, '0')}讲：</b>${t.title}\n   └ 储备：${t.core}`;
+      }
+    }).join('\n\n');
+
+    const msg = `📚 <b>#【AMR 智能移动机器人无限递进大纲库】</b> 📚\n\n` +
+      `🕒 <b>同步时间：</b>${nowStr}\n` +
+      `🧭 <b>当前发布进度：</b>第 <b>${currentIdx}</b> 讲 / 已规划就绪 <b>${topics.length}</b> 讲\n` +
+      `⚡ <b>前瞻机制：</b>每日发文时自动向后推演，始终保持未来 20 天的硬核技术专题储备！\n\n` +
+      `${topicLines}\n\n` +
+      `<i>每天早间 08:00 自动将最新一讲长文推送至微信公众号草稿箱！</i>`;
+
+    await sendTelegramMessageWithKeyboard(env, chatId, msg);
+    return;
+  }
+
 // 跨 Worker 高可用交易 API 调用器（支持多域名容灾回退）
 async function callHubTradeAPI(path, options = {}) {
   const baseUrls = [
@@ -1024,7 +1058,8 @@ async function sendTelegramMessageWithKeyboard(env, chatId, text) {
       [{ text: "⚡ 立即实时选股" }, { text: "🌊 备选池 Top100" }],
       [{ text: "🌟 核心白名单标的" }, { text: "📰 实时舆情雷达" }],
       [{ text: "📢 生成公众号复盘" }, { text: "🤖 生成AGV专栏" }],
-      [{ text: "❄️ 查询雪球组合" }, { text: "🔋 查询剩余算力" }]
+      [{ text: "📋 AMR专题大纲" }, { text: "❄️ 查询雪球组合" }],
+      [{ text: "📈 打开 storkA 看板" }, { text: "🔋 查询剩余算力" }]
     ],
     resize_keyboard: true,
     persistent: true
@@ -1320,54 +1355,114 @@ async function runWeChatDailyPostMarketPublisher(env) {
   }
 }
 
-// 5. 每日 08:00 微信公众号 AGV/AMR 智能移动机器人硬核科普长文全自动发布系统 (20+ 专题自适应轮播，永不重复)
-const AGV_CURATED_TOPICS = [
-  { title: "AGV入门：激光SLAM导航与建图原理解析", core: "2D/3D 激光雷达点云匹配、Cartographer 与 Gmapping 算法在自主移动机器人中的实战应用" },
-  { title: "AGV底盘运动学与全向移动控制全解", core: "两轮差速、四轮麦克纳姆轮、单舵轮与双舵轮运动学解算及工业底盘选型指南" },
-  { title: "AGV多传感器融合与四重安全避障体系", core: "激光避障雷达、3D ToF 深度相机、超声波测距与安全触边防撞四重冗余设计" },
-  { title: "百台级集群：多机调度系统(RCS)与路径规划", core: "A* 算法、Dijkstra 与时间空间冲突避免 (MAPF) 在仓储物流自动化中的调度架构" },
-  { title: "AGV电池管理(BMS)与自动在线对位充电技术", core: "磷酸铁锂电池充放电曲线、无线/伸缩电极自动充电桩与智能电池均衡维护策略" },
-  { title: "工业总线与底层通信架构(CAN/EtherCAT/ROS2)", core: "CANopen、Modbus TCP 与 ROS 2 / DDS 实时中间件在机器人各执行机构中的实时通信" },
-  { title: "具身智能与四足机器人在工业巡检中的结合", core: "四足机器人运动控制、楼梯地形自适应与变电站/化工厂智能防爆巡视" },
-  { title: "关键核心零部件选型计算指南", core: "低压大功率直流伺服电机、精密行星减速机、驱动器与安全 PLC 选型计算" },
-  { title: "工业移动机器人国际安全标准(ISO 3691-4)", core: "安全完整性等级 (SIL/PLd)、急停链路、速度监控与人机协作安全规范" },
-  { title: "二维码导航与视觉惯导(VIO)融合定位", core: "地面二维码定位纠偏、工业相机光流与 IMU 零速修正 (ZUPT) 提高定位精度" },
-  { title: "反光板激光导航在高精度仓储中的实战应用", core: "高反射圆柱标靶三角定位解算、毫米级重复定位精度与工业叉车AGV应用" },
-  { title: "3D视觉SLAM与环境光照自适应建图", core: "RGB-D点云稠密重建、特征点提取与高动态复杂光照车间建图优化" },
-  { title: "AGV顶升机构与旋转台机械结构设计", core: "滚珠丝杠、剪叉式顶升、回转支承与液压升降系统在搬运机器人中的应用" },
-  { title: "多机器人交通管制与动态死锁解除机制", core: "时空拓扑图、交叉路口预约制、基于优先级的死锁检测与回退策略" },
-  { title: "AGV车载工控机与嵌入式控制器选型", core: "ARM Linux、x86 实时工控机、DSP 底层运动控制器与抗震宽温设计" },
-  { title: "5G专网与工业WiFi无缝漫游在AMR中的实践", core: "低时延工业无线网络、BSSID 快速漫游切换与防丢包冗余通信机制" },
-  { title: "托盘无人叉车(Forklift AGV)栈板识别与对位", core: "3D 视觉深度相机识别托盘插孔位姿、激光测距与位姿自适应纠偏" },
-  { title: "移动底盘悬挂减震与地面贴地性平衡设计", core: "独立悬挂、浮动弹簧减震与连杆机构在过坑洼减速带中的动力学响应" },
-  { title: "AGV惯性导航与卡尔曼滤波(EKF)数据融合", core: "高精度 MEMS IMU 陀螺仪积分、轮速计里程计与扩展卡尔曼滤波算法" },
-  { title: "半导体洁净室(Cleanroom) AMR特殊防护要求", core: "Class 100/10 洁净度、防静电(ESD)导电轮、无颗粒排放与防尘密封设计" }
+// 5. 每日 08:00 微信公众号 AMR 智能移动机器人硬核科普长文全自动发布系统 (无限滑动窗口递进生成引擎)
+const AMR_BASE_SEED_TOPICS = [
+  { day: 1, title: "AGV入门：激光SLAM导航与建图原理解析", core: "2D/3D 激光雷达点云匹配、Cartographer 与 Gmapping 算法在自主移动机器人中的实战应用" },
+  { day: 2, title: "AGV底盘运动学与全向移动控制全解", core: "两轮差速、四轮麦克纳姆轮、单舵轮与双舵轮运动学解算及工业底盘选型指南" },
+  { day: 3, title: "AGV多传感器融合与四重安全避障体系", core: "激光避障雷达、3D ToF 深度相机、超声波测距与安全触边防撞四重冗余设计" },
+  { day: 4, title: "百台级集群：多机调度系统(RCS)与路径规划", core: "A* 算法、Dijkstra 与时间空间冲突避免 (MAPF) 在仓储物流自动化中的调度架构" },
+  { day: 5, title: "AGV电池管理(BMS)与自动在线对位充电技术", core: "磷酸铁锂电池充放电曲线、无线/伸缩电极自动充电桩与智能电池均衡维护策略" },
+  { day: 6, title: "工业总线与底层通信架构(CAN/EtherCAT/ROS2)", core: "CANopen、Modbus TCP 与 ROS 2 / DDS 实时中间件在机器人各执行机构中的实时通信" },
+  { day: 7, title: "具身智能与四足机器人在工业巡检中的结合", core: "四足机器人运动控制、楼梯地形自适应与变电站/化工厂智能防爆巡视" },
+  { day: 8, title: "关键核心零部件选型计算指南", core: "低压大功率直流伺服电机、精密行星减速机、驱动器与安全 PLC 选型计算" },
+  { day: 9, title: "工业移动机器人国际安全标准(ISO 3691-4)", core: "安全完整性等级 (SIL/PLd)、急停链路、速度监控与人机协作安全规范" },
+  { day: 10, title: "二维码导航与视觉惯导(VIO)融合定位", core: "地面二维码定位纠偏、工业相机光流与 IMU 零速修正 (ZUPT) 提高定位精度" },
+  { day: 11, title: "反光板激光导航在高精度仓储中的实战应用", core: "高反射圆柱标靶三角定位解算、毫米级重复定位精度与工业叉车AGV应用" },
+  { day: 12, title: "3D视觉SLAM与环境光照自适应建图", core: "RGB-D点云稠密重建、特征点提取与高动态复杂光照车间建图优化" },
+  { day: 13, title: "AGV顶升机构与旋转台机械结构设计", core: "滚珠丝杠、剪叉式顶升、回转支承与液压升降系统在搬运机器人中的应用" },
+  { day: 14, title: "多机器人交通管制与动态死锁解除机制", core: "时空拓扑图、交叉路口预约制、基于优先级的死锁检测与回退策略" },
+  { day: 15, title: "AGV车载工控机与嵌入式控制器选型", core: "ARM Linux、x86 实时工控机、DSP 底层运动控制器与抗震宽温设计" },
+  { day: 16, title: "5G专网与工业WiFi无缝漫游在AMR中的实践", core: "低时延工业无线网络、BSSID 快速漫游切换与防丢包冗余通信机制" },
+  { day: 17, title: "托盘无人叉车(Forklift AGV)栈板识别与对位", core: "3D 视觉深度相机识别托盘插孔位姿、激光测距与位姿自适应纠偏" },
+  { day: 18, title: "移动底盘悬挂减震与地面贴地性平衡设计", core: "独立悬挂、浮动弹簧减震与连杆机构在过坑洼减速带中的动力学响应" },
+  { day: 19, title: "AGV惯性导航与卡尔曼滤波(EKF)数据融合", core: "高精度 MEMS IMU 陀螺仪积分、轮速计里程计与扩展卡尔曼滤波算法" },
+  { day: 20, title: "半导体洁净室(Cleanroom) AMR特殊防护要求", core: "Class 100/10 洁净度、防静电(ESD)导电轮、无颗粒排放与防尘密封设计" }
 ];
+
+// 🌟 核心函数：动态获取并向前递进刷新 AMR 专题列表 (确保始终保持未来 20 天的储备清单)
+async function getAndRefreshAMRTopicsList(env, currentIndex) {
+  let topics = [...AMR_BASE_SEED_TOPICS];
+  
+  if (env && env.AI_USAGE) {
+    try {
+      const stored = await env.AI_USAGE.get('AMR_DYNAMIC_TOPICS_LIST', 'json');
+      if (Array.isArray(stored) && stored.length > 0) {
+        topics = stored;
+      }
+    } catch (e) {}
+  }
+
+  // 检查滑动窗口：确保当前列表长度至少覆盖至 currentIndex + 20
+  const targetMinLength = currentIndex + 20;
+  if (topics.length < targetMinLength) {
+    const needCount = targetMinLength - topics.length;
+    const existingTitles = topics.map(t => t.title).join('、');
+    
+    // 由 Gemini 3.7 自动推演并追加后续前沿工业 AMR 专题
+    const prompt = `你是一位工业移动机器人（AGV/AMR）领域的全球首席技术导师。
+当前 AMR 专题系列已规划了 ${topics.length} 篇内容。为了保证专题库能够无限向后递进延伸，请根据工业界最新的前沿技术发展，连续规划接下来的 ${needCount} 个全新的高价值硬核技术专题。
+
+【已有专题列表（严格避免重复）】：
+${existingTitles}
+
+【新专题技术范畴建议】：
+涵盖：多机协同建图、VDA 5050 国际通用调度协议、ROS 2 Humble/Jazzy 实时控制、GPU 边缘 AI 加速（如 Jetson Orin）、数字孪生与仿真（Isaac Sim / Gazebo）、双臂复合移动机器人（Mobile Manipulator）、四足机器人整机动力学与全身控制（WBC）、光伏/锂电重载防爆 AGV 设计、高精度微动对接传感器（位移激光/触觉）、伺服电机矢量控制（FOC）等。
+
+【输出格式要求】：
+严格输出为 JSON 数组格式，不要输出任何 Markdown 标记：
+[
+  { "title": "专题标题（不超过25字）", "core": "核心技术要点与工程实战拆解（40-60字）" }
+]`;
+
+    try {
+      const aiRes = await generateAIAnalysis(prompt, env);
+      const jsonStr = (aiRes.text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+      const match = jsonStr.match(/\[[\s\S]*\]/);
+      if (match) {
+        const newItems = JSON.parse(match[0]);
+        if (Array.isArray(newItems) && newItems.length > 0) {
+          for (let i = 0; i < newItems.length; i++) {
+            topics.push({
+              day: topics.length + 1,
+              title: newItems[i].title,
+              core: newItems[i].core
+            });
+          }
+          if (env && env.AI_USAGE) {
+            await env.AI_USAGE.put('AMR_DYNAMIC_TOPICS_LIST', JSON.stringify(topics));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('动态生成递进专题失败，使用安全后备扩展:', err);
+    }
+  }
+
+  return topics;
+}
 
 async function runWeChatDailyAGVPublisher(env) {
   const startTime = Date.now();
   const now = new Date();
   const beijingDate = new Date(now.getTime() + 8 * 3600 * 1000);
-  const dayOfYear = Math.floor((beijingDate - new Date(beijingDate.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
-  
-  // 🌟 核心机制：通过 KV 维护持久化主题递增序号，确保每天绝对生成不同专题，绝不重复！
-  let topicIdx = dayOfYear % AGV_CURATED_TOPICS.length;
+  const nowStr = beijingDate.toLocaleString('zh-CN');
+
+  // 1. 获取当前发布进度索引
+  let currentIdx = 1;
   if (env && env.AI_USAGE) {
     try {
-      const lastIdxStr = await env.AI_USAGE.get('AGV_TOPIC_LAST_INDEX');
-      if (lastIdxStr !== null) {
-        topicIdx = (parseInt(lastIdxStr, 10) + 1) % AGV_CURATED_TOPICS.length;
-      }
-      await env.AI_USAGE.put('AGV_TOPIC_LAST_INDEX', topicIdx.toString());
+      const stored = await env.AI_USAGE.get('AMR_TOPIC_CURRENT_INDEX');
+      if (stored) currentIdx = parseInt(stored, 10);
     } catch (e) {}
   }
 
-  const currentTopic = AGV_CURATED_TOPICS[topicIdx];
-  const nowStr = beijingDate.toLocaleString('zh-CN');
+  // 2. 动态刷新专题库，确保至少储备了未来 20 天的内容清单
+  const topics = await getAndRefreshAMRTopicsList(env, currentIdx);
+  const topicItem = topics[currentIdx - 1] || topics[0];
 
   try {
     const prompt = `你是一位拥有15年工业机器人与AGV/AMR移动机器人研发经验的资深系统架构师。
-请针对主题【${currentTopic.title}】（核心技术点：${currentTopic.core}），撰写一篇通俗易懂、图文并茂、深入浅出的【微信公众号硬核技术科普长文】。
+请针对主题【第 ${topicItem.day} 讲：${topicItem.title}】（核心技术点：${topicItem.core}），撰写一篇通俗易懂、图文并茂、深入浅出的【微信公众号硬核技术科普长文】。
 
 【文章内容与结构要求】：
 1. 必须包含四大板块：
@@ -1391,14 +1486,14 @@ async function runWeChatDailyAGVPublisher(env) {
   ${rawHtml}
   
   <div style="margin-top: 35px; padding: 16px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.6;">
-    <p style="margin: 0 0 4px 0; font-weight: 700; color: #0284c7;">🤖【AMR 智能移动机器人技术专栏】</p>
+    <p style="margin: 0 0 4px 0; font-weight: 700; color: #0284c7;">🤖【AMR 智能移动机器人技术专栏 · 第 ${topicItem.day} 讲】</p>
     <p style="margin: 0;">每天早间 08:00 为你带来工业移动机器人、运动控制、SLAM 算法与具身智能硬核技术科普，欢迎关注探讨！</p>
   </div>
 </section>
 `;
 
-    const title = currentTopic.title.slice(0, 30);
-    const digest = `工业移动机器人硬核科普系列：${currentTopic.core.slice(0, 45)}...`;
+    const title = topicItem.title.slice(0, 30);
+    const digest = `工业移动机器人硬核科普系列(第${topicItem.day}讲)：${topicItem.core.slice(0, 40)}...`;
     const accessToken = await getWeChatAccessToken(env);
     const thumbMediaId = await getWeChatThumbMediaId(accessToken, env);
     const draftUrl = `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`;
@@ -1429,13 +1524,21 @@ async function runWeChatDailyAGVPublisher(env) {
     }
 
     const mediaId = draftData.media_id;
-    console.log('🎉 微信公众号 AGV 科普文章草稿创建成功, media_id:', mediaId);
+    console.log(`🎉 微信公众号 AGV 科普第 ${topicItem.day} 讲创建成功, media_id:`, mediaId);
 
-    const tgMsg = `🤖 <b>#【微信公众号 08:00 AGV技术专栏已就绪】</b> 🤖\n\n` +
+    // 3. 成功后递进天数指针至下一天
+    if (env && env.AI_USAGE) {
+      try {
+        await env.AI_USAGE.put('AMR_TOPIC_CURRENT_INDEX', (currentIdx + 1).toString());
+      } catch (e) {}
+    }
+
+    const tgMsg = `🤖 <b>#【微信公众号 08:00 AMR技术专栏(第${topicItem.day}讲)已就绪】</b> 🤖\n\n` +
       `🕒 <b>生成时间：</b>${nowStr}\n` +
       `📰 <b>文章主题：</b><b>${title}</b>\n` +
       `🆔 <b>草稿箱 ID：</b><code>${mediaId}</code>\n` +
-      `📚 <b>本期核心：</b><i>${currentTopic.core}</i>\n\n` +
+      `📚 <b>本期核心：</b><i>${topicItem.core}</i>\n` +
+      `🔭 <b>前瞻规划：</b>专题大纲库已自动向前延伸至第 <b>${topics.length}</b> 讲（未来 20 天储备充足）！\n\n` +
       `📱 <b>操作指引：</b>文章已自动推送至公众号 <b>草稿箱</b>，可直接在手机微信公众号后台一键发表！`;
 
     const inlineBtn = {
@@ -1452,7 +1555,7 @@ async function runWeChatDailyAGVPublisher(env) {
       } catch (e) {}
     }
 
-    return { success: true, mediaId, title, durationMs: Date.now() - startTime };
+    return { success: true, mediaId, title, day: topicItem.day, durationMs: Date.now() - startTime };
   } catch (err) {
     console.error('微信 AGV 文章发布异常:', err);
     if (env.TG_BOT_TOKEN && env.TG_CHAT_ID) {
