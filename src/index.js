@@ -90,7 +90,7 @@ export default {
       return new Response('OK');
     }
 
-    // 阿里云中继隧道自动心跳与动态 URL 注册接口
+    // 阿里云中继隧道自动心跳与动态 URL 注册接口 (diff 增量更新，防 KV 写配额超限)
     if (url.pathname === '/api/relay-register') {
       const key = url.searchParams.get('key');
       if (key !== 'amr_wechat_relay_2026_secure') {
@@ -99,9 +99,17 @@ export default {
       try {
         const body = await request.json();
         if (body?.tunnel_url && env && env.AI_USAGE) {
+          const existing = await env.AI_USAGE.get('AMR_RELAY_TUNNEL_URL');
+          if (existing === body.tunnel_url) {
+            return new Response(JSON.stringify({ success: true, registered: body.tunnel_url, unchanged: true }), {
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
           await env.AI_USAGE.put('AMR_RELAY_TUNNEL_URL', body.tunnel_url);
           console.log('✅ 成功注册/更新阿里云中继隧道 URL:', body.tunnel_url);
-          return new Response(JSON.stringify({ success: true, registered: body.tunnel_url }), { headers: { 'Content-Type': 'application/json' } });
+          return new Response(JSON.stringify({ success: true, registered: body.tunnel_url }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
         }
       } catch (e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 400 });
@@ -148,11 +156,14 @@ export default {
       });
     }
 
-    // 获取算力数据 API
+    // 获取算力数据 API (增加 30s 边缘缓存，避免高频打死 KV 读配额)
     if (url.pathname === '/api/quota') {
       const quota = await getAIQuotaUsage(env);
       return new Response(JSON.stringify(quota, null, 2), {
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'public, max-age=30, s-maxage=30'
+        }
       });
     }
 
@@ -342,9 +353,10 @@ export default {
     </div>
   </div>
 
-  <!-- 🌟 客户端实时无刷感知当前模型与降级状态 -->
+  <!-- 🌟 客户端实时感知当前模型与降级状态 (轻量 60s 轮询 + 页面失焦自动休眠) -->
   <script>
-    setInterval(async () => {
+    async function updateQuotaBadge() {
+      if (document.hidden) return;
       try {
         const res = await fetch('/api/quota');
         if (res.ok) {
@@ -368,7 +380,11 @@ export default {
           }
         }
       } catch (e) {}
-    }, 6000);
+    }
+    setInterval(updateQuotaBadge, 60000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) updateQuotaBadge();
+    });
   </script>
 </body>
 </html>`;
