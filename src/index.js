@@ -16,18 +16,18 @@ export default {
 
     // 1.15 每日 4 次微信公众号 AMR/AGV 硬核科普与开源生态专栏全自动发布 (08:30 / 10:30 / 15:30 / 20:30)
     const isAmrPublishTime = (
-      (bjHour === 8 && bjMin >= 25 && bjMin <= 35) ||
-      (bjHour === 10 && bjMin >= 25 && bjMin <= 35) ||
-      (bjHour === 15 && bjMin >= 25 && bjMin <= 35) ||
-      (bjHour === 20 && bjMin >= 25 && bjMin <= 35)
+      (bjHour === 8 && bjMin >= 20 && bjMin <= 40) ||
+      (bjHour === 10 && bjMin >= 20 && bjMin <= 40) ||
+      (bjHour === 15 && bjMin >= 20 && bjMin <= 40) ||
+      (bjHour === 20 && bjMin >= 20 && bjMin <= 40)
     );
     if (isAmrPublishTime) {
       ctx.waitUntil(runWeChatDailyAGVPublisher(env));
       return;
     }
 
-    // 1.2 收盘深度复盘时段 (15:05 ~ 15:10)
-    if (bjHour === 15 && bjMin >= 3 && bjMin <= 12) {
+    // 1.2 收盘深度复盘时段 (15:05 ~ 15:15)
+    if (bjHour === 15 && bjMin >= 3 && bjMin <= 15) {
       if (bjDay === 6 || bjDay === 0) {
         ctx.waitUntil(runWeeklyAttributionReview(env));
       } else {
@@ -36,19 +36,19 @@ export default {
       return;
     }
 
-    // 1.25 每日 16:00 微信公众号 A股全息深度复盘与草稿全自动发布 (工作日 16:00-16:05)
-    if (bjHour === 16 && bjMin <= 5 && bjDay >= 1 && bjDay <= 5) {
+    // 1.25 每日 16:00 微信公众号 A股全息深度复盘与草稿全自动发布 (工作日 16:00-16:15)
+    if (bjHour === 16 && bjMin <= 15 && bjDay >= 1 && bjDay <= 5) {
       ctx.waitUntil(runWeChatDailyPostMarketPublisher(env));
       return;
     }
 
     // 1.3 黄金交易时段 (工作日 10:00 早盘起爆 & 14:00 午后反包)：全量量化+舆情双击建仓与推送
     if (bjDay >= 1 && bjDay <= 5) {
-      if (bjHour === 10 && bjMin <= 5) {
+      if (bjHour === 10 && bjMin <= 15) {
         ctx.waitUntil(runStockPickerPipeline(env, 'MORNING_BURST'));
         return;
       }
-      if (bjHour === 14 && bjMin <= 5) {
+      if (bjHour === 14 && bjMin <= 15) {
         ctx.waitUntil(runStockPickerPipeline(env, 'AFTERNOON_RALLY'));
         return;
       }
